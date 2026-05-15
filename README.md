@@ -29,14 +29,6 @@ SPOTIFY_CLIENT_SECRET=your_client_secret
 
 These are available in your [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
 
-### Testing
-
-```bash
-cd server
-uv sync --group dev
-uv run pytest tests/ -v
-```
-
 ---
 
 ## Endpoints

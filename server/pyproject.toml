@@ -11,8 +11,3 @@ dependencies = [
     "python-dotenv>=1.0",
 ]
 
-[dependency-groups]
-dev = [
-    "pytest>=8",
-    "anyio[trio]>=4",
-]
