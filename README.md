@@ -118,6 +118,7 @@ Returns the currently playing Spotify track.
 | `artist` | `string \| null` | Artist name(s), comma-separated |
 | `progress_ms` | `int \| null` | Playback position in milliseconds |
 | `duration_ms` | `int \| null` | Total track duration in milliseconds |
+| `album_art_url` | `string \| null` | Album art URL (smallest image ≥ 240px wide, typically 300×300) |
 
 **Error responses**
 

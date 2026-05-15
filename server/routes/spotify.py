@@ -129,6 +129,8 @@ async def spotify_now_playing():
 
     item = data.get("item", {})
     artists = ", ".join(a["name"] for a in item.get("artists", []))
+    images = item.get("album", {}).get("images", [])
+    art_url = next((img["url"] for img in reversed(images) if img["width"] >= 240), None)
 
     return {
         "is_playing": data.get("is_playing", False),
@@ -136,4 +138,5 @@ async def spotify_now_playing():
         "artist": artists,
         "progress_ms": data.get("progress_ms"),
         "duration_ms": item.get("duration_ms"),
+        "album_art_url": art_url,
     }
