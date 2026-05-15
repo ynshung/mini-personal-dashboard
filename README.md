@@ -18,6 +18,17 @@ uv sync
 uv run uvicorn main:app --host 0.0.0.0 --port 3737
 ```
 
+### Environment Variables
+
+Create a `.env` file in the project root:
+
+```env
+SPOTIFY_CLIENT_ID=your_client_id
+SPOTIFY_CLIENT_SECRET=your_client_secret
+```
+
+These are available in your [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
+
 ### Testing
 
 ```bash
@@ -64,3 +75,54 @@ The token is read automatically from the macOS Keychain (`Claude Code-credential
 |---|---|
 | `401` | Keychain lookup failed or token expired |
 | `502` | Unexpected response from Anthropic API |
+
+---
+
+### `GET /v1/spotify/auth`
+
+Redirects to Spotify's authorization page. Visit this once in a browser to authorize the server. After approval, Spotify redirects to `/v1/spotify/callback` and tokens are saved automatically to `server/.spotify_tokens.json`.
+
+**Setup (one-time):**
+1. Add `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` to `.env`
+2. Ensure `http://127.0.0.1:3737/v1/spotify/callback` is set as a Redirect URI in your Spotify app
+3. Start the server and visit `http://127.0.0.1:3737/v1/spotify/auth` in your browser
+
+---
+
+### `GET /v1/spotify/now-playing`
+
+Returns the currently playing Spotify track.
+
+**Response (playing)**
+
+```json
+{
+  "is_playing": true,
+  "track": "Bohemian Rhapsody",
+  "artist": "Queen",
+  "progress_ms": 83000,
+  "duration_ms": 354000
+}
+```
+
+**Response (nothing playing)**
+
+```json
+{"is_playing": false}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `is_playing` | `bool` | Whether a track is currently playing |
+| `track` | `string \| null` | Track name |
+| `artist` | `string \| null` | Artist name(s), comma-separated |
+| `progress_ms` | `int \| null` | Playback position in milliseconds |
+| `duration_ms` | `int \| null` | Total track duration in milliseconds |
+
+**Error responses**
+
+| Status | Cause |
+|---|---|
+| `401` | Not authorized — visit `/v1/spotify/auth` |
+| `500` | Missing `SPOTIFY_CLIENT_ID` or `SPOTIFY_CLIENT_SECRET` in `.env` |
+| `502` | Unexpected response from Spotify API |
