@@ -8,7 +8,7 @@ All commands run from `server/`:
 
 ```bash
 uv sync                                                       # install dependencies
-uv run uvicorn main:app --host 0.0.0.0 --port 3737 --reload  # dev server
+uv run uvicorn main:app --host 0.0.0.0 --port 7333 --reload  # dev server
 ```
 
 ## Architecture

@@ -15,7 +15,7 @@ A local HTTP server that exposes dashboard data for a NodeMCU + GC9A01 display.
 ```bash
 cd server
 uv sync
-uv run uvicorn main:app --host 0.0.0.0 --port 3737
+uv run uvicorn main:app --host 0.0.0.0 --port 7333
 ```
 
 ### Environment Variables
@@ -76,8 +76,8 @@ Redirects to Spotify's authorization page. Visit this once in a browser to autho
 
 **Setup (one-time):**
 1. Add `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` to `.env`
-2. Ensure `http://127.0.0.1:3737/v1/spotify/callback` is set as a Redirect URI in your Spotify app
-3. Start the server and visit `http://127.0.0.1:3737/v1/spotify/auth` in your browser
+2. Ensure `http://127.0.0.1:7333/v1/spotify/callback` is set as a Redirect URI in your Spotify app
+3. Start the server and visit `http://127.0.0.1:7333/v1/spotify/auth` in your browser
 
 ---
 

@@ -12,7 +12,7 @@ router = APIRouter()
 TOKENS_FILE = Path(__file__).parent.parent / ".spotify_tokens.json"
 SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token"
 SPOTIFY_AUTH_URL = "https://accounts.spotify.com/authorize"
-REDIRECT_URI = "http://127.0.0.1:3737/v1/spotify/callback"
+REDIRECT_URI = "http://127.0.0.1:7333/v1/spotify/callback"
 SCOPES = "user-read-currently-playing user-read-playback-state"
 
 
