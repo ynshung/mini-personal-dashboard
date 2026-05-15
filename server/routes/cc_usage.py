@@ -29,6 +29,9 @@ def _format_resets_at(resets_at: str | None) -> str | None:
     remaining = int((dt - datetime.now(timezone.utc)).total_seconds())
     if remaining <= 0:
         return "0 min"
+    if remaining > 86400:
+        local_dt = dt.astimezone()
+        return local_dt.strftime("%a %-I:%M %p")
     hours, rem = divmod(remaining, 3600)
     minutes = rem // 60
     parts = []

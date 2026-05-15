@@ -56,7 +56,7 @@ The token is read automatically from the macOS Keychain (`Claude Code-credential
 | `five_hour.utilization` | `float \| null` | 5-hour session usage as a percentage (0–100). `null` if not applicable to the plan. |
 | `five_hour.resets_at` | `string \| null` | Time until the 5-hour window resets, e.g. `"1 hr 10 min"`. `null` if not applicable. |
 | `seven_day.utilization` | `float \| null` | 7-day weekly usage as a percentage (0–100). `null` if not applicable to the plan. |
-| `seven_day.resets_at` | `string \| null` | Time until the weekly window resets, e.g. `"45 hr 10 min"`. `null` if not applicable. |
+| `seven_day.resets_at` | `string \| null` | Time until the weekly window resets. Under 24 h: `"X hr Y min"`. Over 24 h: `"Sun 6:00 PM"` (local time). `null` if not applicable. |
 
 **Error responses**
 

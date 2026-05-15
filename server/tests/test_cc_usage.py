@@ -38,6 +38,18 @@ def test_format_resets_at_expired():
     assert _format_resets_at(dt.strftime("%Y-%m-%dT%H:%M:%SZ")) == "0 min"
 
 
+def test_format_resets_at_over_24h():
+    dt = datetime.now(timezone.utc) + timedelta(hours=45, minutes=10)
+    result = _format_resets_at(dt.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    # Should be a weekday + time string, not "X hr Y min"
+    assert result is not None
+    assert "hr" not in result
+    # Format: "Mon 6:00 PM" — day abbrev + time
+    parts = result.split(" ")
+    assert len(parts) == 3
+    assert parts[0] in ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+
 # --- /v1/cc-usage endpoint tests ---
 
 def _make_mock_client(status_code: int, body: dict) -> MagicMock:
