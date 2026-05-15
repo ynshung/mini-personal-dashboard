@@ -1,6 +1,6 @@
-# Personal Dashboard — NodeMCU
+# Mini Personal Dashboard
 
-A local HTTP server that exposes dashboard data for a NodeMCU display.
+A local HTTP server that exposes dashboard data for a NodeMCU + GC9A01 display.
 
 ## Server
 
