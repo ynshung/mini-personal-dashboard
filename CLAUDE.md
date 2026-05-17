@@ -70,4 +70,4 @@ Hardware: GC9A01 240×240 round TFT, driven via SPI.
 - `/v1/spotify/now-playing` returns lightweight JSON: `track_id`, `is_playing`, `progress_ms`, `duration_ms`
 - `/v1/spotify/now-playing/art` returns raw RGB565 binary (115,200 bytes) — called only on track change
 - API poll every 5 s (`POLL_INTERVAL_MS`); also polls immediately when estimated progress reaches song duration
-- Local tick every 250 ms (`TICK_INTERVAL_MS`) interpolates progress bar only
+- Local tick every 1s (`TICK_INTERVAL_MS`) interpolates progress bar only

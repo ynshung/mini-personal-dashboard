@@ -33,7 +33,7 @@ struct TrackState {
 TrackState current;
 
 const unsigned long POLL_INTERVAL_MS = 5000;
-const unsigned long TICK_INTERVAL_MS = 250;
+const unsigned long TICK_INTERVAL_MS = 1000;
 unsigned long lastPoll    = 0;
 unsigned long lastTick    = 0;
 unsigned long lastFetchMs = 0;
