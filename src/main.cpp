@@ -3,6 +3,7 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <TFT_eSPI.h>
+#include <OneButtonTiny.h>
 
 const char *ssid     = WIFI_SSID;
 const char *password = WIFI_PASSWORD;
@@ -11,6 +12,7 @@ const char *apiKey   = API_KEY;
 const char *hostname = "esp32-dashboard";
 
 TFT_eSPI tft = TFT_eSPI();
+OneButtonTiny btn(19, true); // GPIO 19, active-low
 
 const uint16_t COL_GREY      = 0x52AA;
 const uint16_t COL_BAR_BG    = 0x39C7; // white at 25% opacity on black
@@ -152,6 +154,20 @@ bool fetchAlbumArt() {
 
 // --- Networking ---
 
+void sendCommand(const char* path) {
+    if (WiFi.status() != WL_CONNECTED) return;
+    HTTPClient http;
+    http.begin(String(serverUrl) + path);
+    http.addHeader("X-API-Key", apiKey);
+    int code = http.POST("");
+    http.end();
+    Serial.printf("sendCommand %s -> %d\n", path, code);
+    if (code == 204) {
+        delay(200);
+        lastPoll = 0;
+    }
+}
+
 void fetchNowPlaying() {
     HTTPClient http;
     http.begin(String(serverUrl) + "/v1/spotify/now-playing");
@@ -222,9 +238,13 @@ void setup() {
     tft.setRotation(0);
     initWiFi();
     drawStatus("Connecting to server...");
+    btn.attachClick([]() { sendCommand("/v1/spotify/toggle"); });
+    btn.attachDoubleClick([]() { sendCommand("/v1/spotify/next"); });
+    btn.attachLongPressStart([]() { sendCommand("/v1/spotify/previous"); });
 }
 
 void loop() {
+    btn.tick();
     unsigned long now = millis();
 
     // End-of-song poll: immediately check when estimated progress reaches duration
