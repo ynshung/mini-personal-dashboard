@@ -17,9 +17,9 @@ const uint16_t COL_BAR_BG    = 0x39C7; // white at 25% opacity on black
 const uint16_t COL_BAR_FILL  = 0xE71C; // white at 90% opacity on black
 
 const int CX    = 120;
-const int BAR_X = 40;
+const int BAR_W = 120;
+const int BAR_X = (240 - BAR_W) / 2;
 const int BAR_Y = 210;
-const int BAR_W = 160;
 const int BAR_H = 3;
 
 struct TrackState {
@@ -58,12 +58,12 @@ void initWiFi() {
 // --- Display ---
 
 void drawProgressBar(uint32_t progress_ms, uint32_t duration_ms, bool is_playing) {
-    tft.fillRect(BAR_X, BAR_Y, BAR_W, BAR_H, COL_BAR_BG);
+    tft.fillRoundRect(BAR_X, BAR_Y, BAR_W, BAR_H, BAR_H / 2, COL_BAR_BG);
     if (duration_ms == 0) return;
     int fillW = (int)((float)progress_ms / duration_ms * BAR_W);
     if (fillW > BAR_W) fillW = BAR_W;
     if (fillW > 0 && is_playing)
-        tft.fillRect(BAR_X, BAR_Y, fillW, BAR_H, COL_BAR_FILL);
+        tft.fillRoundRect(BAR_X, BAR_Y, fillW, BAR_H, BAR_H / 2, COL_BAR_FILL);
 }
 
 void drawTick() {

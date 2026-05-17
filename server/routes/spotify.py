@@ -1,6 +1,7 @@
 import json
 import os
 import time
+from io import BytesIO
 from pathlib import Path
 
 import httpx
@@ -189,6 +190,45 @@ async def spotify_now_playing():
         "progress_ms": data.get("progress_ms", 0),
         "duration_ms": item.get("duration_ms", 0),
     }
+
+
+@router.get("/spotify/now-playing/art/jpeg")
+async def spotify_now_playing_art_jpeg():
+    token = await _get_access_token()
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            "https://api.spotify.com/v1/me/player/currently-playing",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    if resp.status_code == 204:
+        return Response(status_code=204)
+
+    if not resp.is_success:
+        raise HTTPException(status_code=502, detail=f"Spotify API error: {resp.status_code}")
+
+    data = resp.json()
+
+    if data.get("currently_playing_type") != "track":
+        return Response(status_code=204)
+
+    item = data.get("item", {})
+    artists = ", ".join(a["name"] for a in item.get("artists", []))
+    images = item.get("album", {}).get("images", [])
+    art_url = next((img["url"] for img in reversed(images) if img["width"] >= 240), None)
+    album_id = item.get("album", {}).get("id", "unknown")
+
+    if not art_url:
+        return Response(status_code=204)
+
+    base = await fetch_and_build_base(art_url, album_id)
+    final = composite_text(base, item.get("name", ""), artists)
+
+    buf = BytesIO()
+    final.save(buf, format="JPEG", quality=90)
+
+    return Response(content=buf.getvalue(), media_type="image/jpeg")
 
 
 @router.get("/spotify/now-playing/art")

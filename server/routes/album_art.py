@@ -9,7 +9,7 @@ CACHE_DIR = Path(__file__).parent.parent / ".album_art_cache"
 FONTS_DIR = Path(__file__).parent.parent / "fonts"
 MAX_CACHE_ENTRIES = 50
 IMG_SIZE = 240
-CIRCLE_RADIUS = 130
+CIRCLE_RADIUS = 124
 
 
 def _get_font(name: str, size: int) -> ImageFont.FreeTypeFont:
@@ -21,6 +21,13 @@ def _get_font(name: str, size: int) -> ImageFont.FreeTypeFont:
 
 FONT_TITLE = _get_font("NotoSansCJK-Medium.ttc", 15)
 FONT_ARTIST = _get_font("NotoSansCJK-Regular.ttc", 12)
+
+TITLE_Y = 160
+ARTIST_Y = 182
+TITLE_MAX_WIDTH = 190
+TITLE_TRUNCATE_WIDTH = TITLE_MAX_WIDTH - 8
+ARTIST_MAX_WIDTH = 180
+ARTIST_TRUNCATE_WIDTH = ARTIST_MAX_WIDTH - 8
 
 
 def _prune_cache() -> None:
@@ -83,8 +90,8 @@ def composite_text(base: Image.Image, track: str, artist: str) -> Image.Image:
 
     title_bbox = draw.textbbox((0, 0), track, font=FONT_TITLE)
     title_w = title_bbox[2] - title_bbox[0]
-    if title_w > 180:
-        while title_w > 170 and len(track) > 0:
+    if title_w > TITLE_MAX_WIDTH:
+        while title_w > TITLE_TRUNCATE_WIDTH and len(track) > 0:
             track = track[:-1]
             title_bbox = draw.textbbox((0, 0), track + "...", font=FONT_TITLE)
             title_w = title_bbox[2] - title_bbox[0]
@@ -93,12 +100,12 @@ def composite_text(base: Image.Image, track: str, artist: str) -> Image.Image:
         title_w = title_bbox[2] - title_bbox[0]
 
     title_x = (IMG_SIZE - title_w) // 2
-    draw.text((title_x, 178), track, fill=(255, 255, 255), font=FONT_TITLE)
+    draw.text((title_x, TITLE_Y), track, fill=(255, 255, 255), font=FONT_TITLE)
 
     artist_bbox = draw.textbbox((0, 0), artist, font=FONT_ARTIST)
     artist_w = artist_bbox[2] - artist_bbox[0]
-    if artist_w > 180:
-        while artist_w > 170 and len(artist) > 0:
+    if artist_w > ARTIST_MAX_WIDTH:
+        while artist_w > ARTIST_TRUNCATE_WIDTH and len(artist) > 0:
             artist = artist[:-1]
             artist_bbox = draw.textbbox((0, 0), artist + "...", font=FONT_ARTIST)
             artist_w = artist_bbox[2] - artist_bbox[0]
@@ -107,7 +114,7 @@ def composite_text(base: Image.Image, track: str, artist: str) -> Image.Image:
         artist_w = artist_bbox[2] - artist_bbox[0]
 
     artist_x = (IMG_SIZE - artist_w) // 2
-    draw.text((artist_x, 193), artist, fill=(179, 179, 179), font=FONT_ARTIST)
+    draw.text((artist_x, ARTIST_Y), artist, fill=(179, 179, 179), font=FONT_ARTIST)
 
     return img
 
