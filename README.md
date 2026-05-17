@@ -70,6 +70,27 @@ pio device monitor       # open serial monitor (115200 baud)
 
 Board: ESP32 (`esp32dev`), framework: Arduino. Source in `src/main.cpp`.
 
+### Display Wiring (GC9A01 → ESP32)
+
+| GC9A01 pin | ESP32 GPIO |
+|------------|-----------|
+| MOSI / SDA | 23        |
+| SCLK / SCL | 18        |
+| CS         | 15        |
+| DC / RS    | 2         |
+| RST        | 4         |
+| VCC        | 3.3 V     |
+| GND        | GND       |
+
+### Display UI
+
+The ESP32 polls `/v1/spotify/now-playing` every 5 seconds and renders:
+
+- **Album art placeholder** — accent-colored square (96×96 px), color varies per track
+- **Track name** and **artist** — centered text
+- **Elapsed / total time** — updates every 250 ms locally between API polls
+- **Progress bar** — 160×3 px line at the bottom; green when playing, grey when paused
+
 ---
 
 ## Server

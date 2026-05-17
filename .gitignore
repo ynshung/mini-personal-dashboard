@@ -17,3 +17,4 @@ server/.spotify_tokens.json
 .claude/
 
 .pio
+.superpowers/

@@ -39,6 +39,31 @@ Source lives in `src/main.cpp`. Libraries go in `lib/`, shared headers in `inclu
 
 **Environment variables:** `load_env.py` is a PlatformIO pre-script that reads `.env` from the project root and injects each key-value pair as a C preprocessor macro (`-D KEY=VALUE`), making server config (e.g. Wi-Fi credentials, API keys) available at compile time.
 
+**Libraries:** `TFT_eSPI` (display driver) and `ArduinoJson` (JSON parsing). TFT_eSPI is configured entirely via `build_flags` in `platformio.ini` — do not edit `User_Setup.h` inside the library.
+
+**IDE diagnostics:** The VS Code clang analyzer will show false errors (`Arduino.h not found`, undeclared identifiers) because it doesn't know about the PlatformIO toolchain. These are harmless — use `pio run` to verify real build status.
+
 ## Target display
 
-The NodeMCU polls these endpoints to drive a physical display. Current hardware: potentially a GC9A01 240×240 TFT. Endpoints return structured data; formatting is handled on the device side.
+Hardware: GC9A01 240×240 round TFT, driven via SPI.
+
+**Wiring (ESP32 → GC9A01):**
+
+| GC9A01 | ESP32 GPIO |
+|--------|-----------|
+| MOSI   | 23        |
+| SCLK   | 18        |
+| CS     | 15        |
+| DC/RS  | 2         |
+| RST    | 4         |
+
+**Display layout (`src/main.cpp`):**
+- Album art placeholder: 96×96 px rounded rect, top-left at (72, 36), accent color per track
+- Track name: font 2, centered at y=148
+- Artist: font 1, centered at y=168
+- Time (elapsed / total): font 1, centered at y=196
+- Progress bar: 160×3 px at (40, 208), green when playing, grey when paused
+
+**Polling & rendering:**
+- API poll every 5 s (`POLL_INTERVAL_MS`); full redraw only on track/play-state change
+- Local tick every 250 ms (`TICK_INTERVAL_MS`) interpolates progress between polls — redraws bar + time only, no full screen clear
