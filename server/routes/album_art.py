@@ -28,6 +28,8 @@ TITLE_MAX_WIDTH = 190
 TITLE_TRUNCATE_WIDTH = TITLE_MAX_WIDTH - 8
 ARTIST_MAX_WIDTH = 180
 ARTIST_TRUNCATE_WIDTH = ARTIST_MAX_WIDTH - 8
+GRADIENT_START_Y = 132
+GRADIENT_MAX_ALPHA = 204
 
 
 def _prune_cache() -> None:
@@ -54,12 +56,10 @@ async def fetch_and_build_base(art_url: str, album_id: str) -> Image.Image:
 
     gradient = Image.new("L", (IMG_SIZE, IMG_SIZE), 0)
     for y in range(IMG_SIZE):
-        if y <= 120:
-            alpha = 0
-        elif y <= 132:
+        if y <= GRADIENT_START_Y:
             alpha = 0
         else:
-            alpha = int((y - 132) / (IMG_SIZE - 132) * 204)
+            alpha = int((y - GRADIENT_START_Y) / (IMG_SIZE - GRADIENT_START_Y) * GRADIENT_MAX_ALPHA)
         for x in range(IMG_SIZE):
             gradient.putpixel((x, y), alpha)
 
