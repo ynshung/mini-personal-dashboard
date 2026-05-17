@@ -16,6 +16,7 @@ const uint16_t COL_GREY      = 0x52AA;
 const uint16_t COL_BAR_BG    = 0x39C7; // white at 25% opacity on black
 const uint16_t COL_BAR_FILL  = 0xE71C; // white at 90% opacity on black
 const uint16_t COL_BAR_PLAY  = 0x1CC4; // Spotify green #1DB954 in RGB565
+const uint16_t COL_BAR_ERROR = 0xFD24; // orange
 
 const int CX    = 120;
 const int BAR_W = 120;
@@ -38,6 +39,7 @@ unsigned long lastPoll    = 0;
 unsigned long lastTick    = 0;
 unsigned long lastFetchMs = 0;
 bool hasArt = false;
+bool pollFailed = false;
 
 // --- WiFi ---
 
@@ -63,12 +65,13 @@ void drawProgressBar(uint32_t progress_ms, uint32_t duration_ms, bool is_playing
     if (duration_ms == 0) return;
     int fillW = (int)((float)progress_ms / duration_ms * BAR_W);
     if (fillW > BAR_W) fillW = BAR_W;
+    uint16_t col = pollFailed ? COL_BAR_ERROR : (is_playing ? COL_BAR_PLAY : COL_BAR_FILL);
     if (fillW > 0)
-        tft.fillRoundRect(BAR_X, BAR_Y, fillW, BAR_H, BAR_H / 2, is_playing ? COL_BAR_PLAY : COL_BAR_FILL);
+        tft.fillRoundRect(BAR_X, BAR_Y, fillW, BAR_H, BAR_H / 2, col);
 }
 
 void drawTick() {
-    if (!current.is_playing || current.duration_ms == 0) return;
+    if (pollFailed || !current.is_playing || current.duration_ms == 0) return;
     uint32_t estimated = current.progress_ms + (uint32_t)(millis() - lastFetchMs);
     if (estimated > current.duration_ms) estimated = current.duration_ms;
     drawProgressBar(estimated, current.duration_ms, true);
@@ -148,6 +151,10 @@ void fetchNowPlaying() {
     if (code != 200) {
         Serial.printf("HTTP error: %d\n", code);
         http.end();
+        if (!pollFailed) {
+            pollFailed = true;
+            drawProgressBar(current.progress_ms, current.duration_ms, current.is_playing);
+        }
         return;
     }
 
@@ -157,8 +164,14 @@ void fetchNowPlaying() {
     JsonDocument doc;
     if (deserializeJson(doc, payload)) {
         Serial.println("JSON parse error");
+        if (!pollFailed) {
+            pollFailed = true;
+            drawProgressBar(current.progress_ms, current.duration_ms, current.is_playing);
+        }
         return;
     }
+
+    pollFailed = false;
 
     TrackState next;
     next.is_playing  = doc["is_playing"]  | false;
