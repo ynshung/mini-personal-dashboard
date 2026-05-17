@@ -41,11 +41,16 @@ uv run uvicorn main:app --host 0.0.0.0 --port 7333
 Create a `.env` file in the project root:
 
 ```env
+API_KEY=your_secret_key
 SPOTIFY_CLIENT_ID=your_client_id
 SPOTIFY_CLIENT_SECRET=your_client_secret
 ```
 
-These are available in your [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
+| Variable | Description |
+|---|---|
+| `API_KEY` | Required. All endpoints (except Spotify OAuth) require `X-API-Key` header matching this value. |
+| `SPOTIFY_CLIENT_ID` | From your [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) |
+| `SPOTIFY_CLIENT_SECRET` | From your [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) |
 
 ---
 
@@ -96,6 +101,24 @@ Redirects to Spotify's authorization page. Visit this once in a browser to autho
 1. Add `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` to `.env`
 2. Ensure `http://127.0.0.1:7333/v1/spotify/callback` is set as a Redirect URI in your Spotify app
 3. Start the server and visit `http://127.0.0.1:7333/v1/spotify/auth` in your browser
+
+---
+
+### `POST /v1/spotify/play`
+
+Resumes playback on the active Spotify device.
+
+### `POST /v1/spotify/pause`
+
+Pauses playback on the active Spotify device.
+
+### `POST /v1/spotify/next`
+
+Skips to the next track.
+
+### `POST /v1/spotify/previous`
+
+Skips to the previous track.
 
 ---
 

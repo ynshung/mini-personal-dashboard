@@ -1,5 +1,8 @@
+import os
+
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from routes.cc_usage import router as cc_usage_router
 from routes.spotify import router as spotify_router
@@ -7,6 +10,19 @@ from routes.spotify import router as spotify_router
 load_dotenv()
 
 app = FastAPI()
+
+OPEN_PATHS = {"/v1/spotify/auth", "/v1/spotify/callback"}
+
+
+@app.middleware("http")
+async def verify_api_key(request: Request, call_next):
+    if request.url.path not in OPEN_PATHS:
+        expected = os.getenv("API_KEY")
+        key = request.headers.get("X-API-Key")
+        if not expected or key != expected:
+            return JSONResponse(status_code=401, content={"detail": "Invalid API key"})
+    return await call_next(request)
+
 
 app.include_router(cc_usage_router, prefix="/v1")
 app.include_router(spotify_router, prefix="/v1")
