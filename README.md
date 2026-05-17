@@ -16,6 +16,7 @@ Copy the template below into a `.env` file in the project root:
 
 ```env
 API_KEY=your_secret_key
+SERVER_URL=http://192.168.1.100:7333
 SPOTIFY_CLIENT_ID=your_client_id
 SPOTIFY_CLIENT_SECRET=your_client_secret
 WIFI_SSID=your_network_name
@@ -24,6 +25,7 @@ DEVELOPMENT_MODE=true
 ```
 
 - `API_KEY` — used by the ESP32 to authenticate requests (set to any secret string)
+- `SERVER_URL` — base URL of the server (e.g. `http://192.168.1.100:7333`), used by the ESP32
 - `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` — from your [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
 - `WIFI_SSID` / `WIFI_PASSWORD` — for the ESP32 to connect to your network
 - `DEVELOPMENT_MODE` — set to `true` to skip API key checks (for local development)
@@ -92,6 +94,7 @@ Create a `.env` file in the project root:
 
 ```env
 API_KEY=your_secret_key
+SERVER_URL=http://192.168.1.100:7333
 SPOTIFY_CLIENT_ID=your_client_id
 SPOTIFY_CLIENT_SECRET=your_client_secret
 WIFI_SSID=your_network_name
@@ -102,6 +105,7 @@ DEVELOPMENT_MODE=true
 | Variable | Description |
 |---|---|
 | `API_KEY` | Required (unless `DEVELOPMENT_MODE` is set). All endpoints (except Spotify OAuth) require `X-API-Key` header matching this value. |
+| `SERVER_URL` | Base URL of the dashboard server (used by ESP32 firmware) |
 | `SPOTIFY_CLIENT_ID` | From your [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) |
 | `SPOTIFY_CLIENT_SECRET` | From your [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) |
 | `WIFI_SSID` | Wi-Fi network name for the ESP32 |
