@@ -58,12 +58,16 @@ Hardware: GC9A01 240×240 round TFT, driven via SPI.
 | RST    | 4         |
 
 **Display layout (`src/main.cpp`):**
-- Album art placeholder: 96×96 px rounded rect, top-left at (72, 36), accent color per track
-- Track name: font 2, centered at y=148
-- Artist: font 1, centered at y=168
-- Time (elapsed / total): font 1, centered at y=196
-- Progress bar: 160×3 px at (40, 208), green when playing, grey when paused
+- Album art: full-screen 240×240 image streamed from server as RGB565 binary, clipped to circle by server-side mask
+- Track name + artist: rendered server-side with Pillow (Inter font) in a gradient overlay region at the bottom
+- Progress bar: 160×3 px at (40, 210), white fill when playing, dim when paused — drawn locally by ESP32
+
+**Album art pipeline (`server/routes/album_art.py`):**
+- Fetches album art JPEG from Spotify, resizes to 240×240, applies gradient overlay (rows 132–240), circular mask (radius 110), composites track/artist text, converts to RGB565
+- Base image (art + gradient + mask) cached in `server/.album_art_cache/` keyed by Spotify album ID; text composited per-request on top of cached base
 
 **Polling & rendering:**
-- API poll every 5 s (`POLL_INTERVAL_MS`); full redraw only on track/play-state change
-- Local tick every 250 ms (`TICK_INTERVAL_MS`) interpolates progress between polls — redraws bar + time only, no full screen clear
+- `/v1/spotify/now-playing` returns lightweight JSON: `track_id`, `is_playing`, `progress_ms`, `duration_ms`
+- `/v1/spotify/now-playing/art` returns raw RGB565 binary (115,200 bytes) — called only on track change
+- API poll every 5 s (`POLL_INTERVAL_MS`); also polls immediately when estimated progress reaches song duration
+- Local tick every 250 ms (`TICK_INTERVAL_MS`) interpolates progress bar only

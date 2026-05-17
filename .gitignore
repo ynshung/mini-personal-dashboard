@@ -18,3 +18,4 @@ server/.spotify_tokens.json
 
 .pio
 .superpowers/
+server/.album_art_cache/

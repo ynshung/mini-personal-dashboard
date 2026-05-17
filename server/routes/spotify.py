@@ -5,7 +5,8 @@ from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
+from routes.album_art import fetch_and_build_base, composite_text, to_rgb565
 
 router = APIRouter()
 
@@ -181,15 +182,47 @@ async def spotify_now_playing():
         return {"is_playing": False}
 
     item = data.get("item", {})
+
+    return {
+        "track_id": item.get("id", ""),
+        "is_playing": data.get("is_playing", False),
+        "progress_ms": data.get("progress_ms", 0),
+        "duration_ms": item.get("duration_ms", 0),
+    }
+
+
+@router.get("/spotify/now-playing/art")
+async def spotify_now_playing_art():
+    token = await _get_access_token()
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            "https://api.spotify.com/v1/me/player/currently-playing",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    if resp.status_code == 204:
+        return Response(status_code=204)
+
+    if not resp.is_success:
+        raise HTTPException(status_code=502, detail=f"Spotify API error: {resp.status_code}")
+
+    data = resp.json()
+
+    if data.get("currently_playing_type") != "track":
+        return Response(status_code=204)
+
+    item = data.get("item", {})
     artists = ", ".join(a["name"] for a in item.get("artists", []))
     images = item.get("album", {}).get("images", [])
     art_url = next((img["url"] for img in reversed(images) if img["width"] >= 240), None)
+    album_id = item.get("album", {}).get("id", "unknown")
 
-    return {
-        "is_playing": data.get("is_playing", False),
-        "track": item.get("name"),
-        "artist": artists,
-        "progress_ms": data.get("progress_ms"),
-        "duration_ms": item.get("duration_ms"),
-        "album_art_url": art_url,
-    }
+    if not art_url:
+        return Response(status_code=204)
+
+    base = await fetch_and_build_base(art_url, album_id)
+    final = composite_text(base, item.get("name", ""), artists)
+    rgb565 = to_rgb565(final)
+
+    return Response(content=rgb565, media_type="application/octet-stream")

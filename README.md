@@ -86,10 +86,10 @@ Board: ESP32 (`esp32dev`), framework: Arduino. Source in `src/main.cpp`.
 
 The ESP32 polls `/v1/spotify/now-playing` every 5 seconds and renders:
 
-- **Album art placeholder** — accent-colored square (96×96 px), color varies per track
-- **Track name** and **artist** — centered text
-- **Elapsed / total time** — updates every 250 ms locally between API polls
-- **Progress bar** — 160×3 px line at the bottom; green when playing, grey when paused
+- **Full-screen album art** — fetched from `/v1/spotify/now-playing/art` as a pre-composited RGB565 image, streamed row-by-row to the display (only on track change)
+- **Track name** and **artist** — rendered server-side with Pillow (Inter font) in a gradient overlay at the bottom of the album art
+- **Progress bar** — 160×3 px at y=210, white fill when playing; interpolated locally every 250 ms between polls
+- **End-of-song detection** — immediately polls when estimated progress reaches song duration
 
 ---
 
@@ -205,15 +205,14 @@ Skips to the previous track.
 
 ### `GET /v1/spotify/now-playing`
 
-Returns the currently playing Spotify track.
+Returns lightweight playback state for polling.
 
 **Response (playing)**
 
 ```json
 {
+  "track_id": "6rqhFgbbKwnb9MLmUQDhG6",
   "is_playing": true,
-  "track": "Bohemian Rhapsody",
-  "artist": "Queen",
   "progress_ms": 83000,
   "duration_ms": 354000
 }
@@ -227,12 +226,10 @@ Returns the currently playing Spotify track.
 
 | Field | Type | Description |
 |---|---|---|
+| `track_id` | `string` | Spotify track ID |
 | `is_playing` | `bool` | Whether a track is currently playing |
-| `track` | `string \| null` | Track name |
-| `artist` | `string \| null` | Artist name(s), comma-separated |
-| `progress_ms` | `int \| null` | Playback position in milliseconds |
-| `duration_ms` | `int \| null` | Total track duration in milliseconds |
-| `album_art_url` | `string \| null` | Album art URL (smallest image ≥ 240px wide, typically 300×300) |
+| `progress_ms` | `int` | Playback position in milliseconds |
+| `duration_ms` | `int` | Total track duration in milliseconds |
 
 **Error responses**
 
@@ -240,4 +237,22 @@ Returns the currently playing Spotify track.
 |---|---|
 | `401` | Not authorized — visit `/v1/spotify/auth` |
 | `500` | Missing `SPOTIFY_CLIENT_ID` or `SPOTIFY_CLIENT_SECRET` in `.env` |
+| `502` | Unexpected response from Spotify API |
+
+---
+
+### `GET /v1/spotify/now-playing/art`
+
+Returns the current track's album art as a pre-composited 240×240 RGB565 binary image (115,200 bytes). The server fetches the album art from Spotify, resizes it, applies a gradient overlay and circular mask, renders track/artist text, and converts to RGB565. Base images (art + gradient + mask) are cached by album ID in `server/.album_art_cache/`.
+
+Returns `204 No Content` if nothing is playing.
+
+**Response:** raw `application/octet-stream` — 115,200 bytes of big-endian RGB565 pixel data (240 rows × 240 pixels × 2 bytes).
+
+**Error responses**
+
+| Status | Cause |
+|---|---|
+| `204` | Nothing playing or no album art available |
+| `401` | Not authorized — visit `/v1/spotify/auth` |
 | `502` | Unexpected response from Spotify API |
