@@ -33,7 +33,11 @@ This is a FastAPI server (`server/`) that exposes JSON endpoints for a NodeMCU m
 
 ## Firmware
 
-Source lives in `src/main.cpp`. Board: ESP32 (`esp32dev`), framework: Arduino. Libraries go in `lib/`, shared headers in `include/`.
+**Build system:** PlatformIO (`platformio.ini`). Platform: `espressif32`, board: `esp32dev`, framework: Arduino.
+
+Source lives in `src/main.cpp`. Libraries go in `lib/`, shared headers in `include/`.
+
+**Environment variables:** `load_env.py` is a PlatformIO pre-script that reads `.env` from the project root and injects each key-value pair as a C preprocessor macro (`-D KEY=VALUE`), making server config (e.g. Wi-Fi credentials, API keys) available at compile time.
 
 ## Target display
 
