@@ -19,8 +19,8 @@ def _get_font(name: str, size: int) -> ImageFont.FreeTypeFont:
     return ImageFont.load_default(size)
 
 
-FONT_TITLE = _get_font("Inter-SemiBold.ttf", 15)
-FONT_ARTIST = _get_font("Inter-Regular.ttf", 12)
+FONT_TITLE = _get_font("NotoSansCJK-Medium.ttc", 15)
+FONT_ARTIST = _get_font("NotoSansCJK-Regular.ttc", 12)
 
 
 def _prune_cache() -> None:
