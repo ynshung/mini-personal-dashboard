@@ -26,13 +26,13 @@ FONT_ARTIST = _get_font("NotoSansCJK-Regular.ttc", 12)
 def _prune_cache() -> None:
     if not CACHE_DIR.exists():
         return
-    files = sorted(CACHE_DIR.glob("*.png"), key=lambda f: f.stat().st_atime)
+    files = sorted(CACHE_DIR.glob("*.jpg"), key=lambda f: f.stat().st_atime)
     while len(files) > MAX_CACHE_ENTRIES:
         files.pop(0).unlink()
 
 
 async def fetch_and_build_base(art_url: str, album_id: str) -> Image.Image:
-    cache_path = CACHE_DIR / f"{album_id}.png"
+    cache_path = CACHE_DIR / f"{album_id}.jpg"
 
     if cache_path.exists():
         cache_path.touch()
@@ -71,7 +71,7 @@ async def fetch_and_build_base(art_url: str, album_id: str) -> Image.Image:
     img = Image.composite(img, bg, mask)
 
     CACHE_DIR.mkdir(exist_ok=True)
-    img.save(cache_path, "PNG")
+    img.save(cache_path, "JPEG", quality=90)
     _prune_cache()
 
     return img
@@ -93,7 +93,7 @@ def composite_text(base: Image.Image, track: str, artist: str) -> Image.Image:
         title_w = title_bbox[2] - title_bbox[0]
 
     title_x = (IMG_SIZE - title_w) // 2
-    draw.text((title_x, 187), track, fill=(255, 255, 255), font=FONT_TITLE)
+    draw.text((title_x, 178), track, fill=(255, 255, 255), font=FONT_TITLE)
 
     artist_bbox = draw.textbbox((0, 0), artist, font=FONT_ARTIST)
     artist_w = artist_bbox[2] - artist_bbox[0]
@@ -107,7 +107,7 @@ def composite_text(base: Image.Image, track: str, artist: str) -> Image.Image:
         artist_w = artist_bbox[2] - artist_bbox[0]
 
     artist_x = (IMG_SIZE - artist_w) // 2
-    draw.text((artist_x, 205), artist, fill=(179, 179, 179), font=FONT_ARTIST)
+    draw.text((artist_x, 193), artist, fill=(179, 179, 179), font=FONT_ARTIST)
 
     return img
 
