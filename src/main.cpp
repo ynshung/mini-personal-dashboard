@@ -163,8 +163,7 @@ void sendCommand(const char* path) {
     http.end();
     Serial.printf("sendCommand %s -> %d\n", path, code);
     if (code == 204) {
-        delay(200);
-        lastPoll = 0;
+        lastPoll = millis() - POLL_INTERVAL_MS + 200;
     }
 }
 
@@ -179,7 +178,10 @@ void fetchNowPlaying() {
         http.end();
         if (!pollFailed) {
             pollFailed = true;
-            drawProgressBar(current.progress_ms, current.duration_ms, current.is_playing);
+            if (hasArt)
+                drawProgressBar(current.progress_ms, current.duration_ms, current.is_playing);
+            else
+                drawStatus("Server unreachable");
         }
         return;
     }
@@ -192,7 +194,10 @@ void fetchNowPlaying() {
         Serial.println("JSON parse error");
         if (!pollFailed) {
             pollFailed = true;
-            drawProgressBar(current.progress_ms, current.duration_ms, current.is_playing);
+            if (hasArt)
+                drawProgressBar(current.progress_ms, current.duration_ms, current.is_playing);
+            else
+                drawStatus("Server unreachable");
         }
         return;
     }
