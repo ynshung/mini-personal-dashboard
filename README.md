@@ -2,6 +2,54 @@
 
 A local HTTP server that exposes dashboard data for a NodeMCU + GC9A01 display, and ESP32 firmware to drive it.
 
+## Features
+
+- **Spotify Player** — now-playing display with playback controls (play/pause, next, previous)
+- **Claude Usage Monitor** — real-time Claude Code plan usage (5-hour session and 7-day windows)
+- **RevenueCat Dashboard** *(TODO)* — subscription revenue metrics
+
+## Get Started
+
+### 1. Create `.env`
+
+Copy the template below into a `.env` file in the project root:
+
+```env
+API_KEY=your_secret_key
+SPOTIFY_CLIENT_ID=your_client_id
+SPOTIFY_CLIENT_SECRET=your_client_secret
+WIFI_SSID=your_network_name
+WIFI_PASSWORD=your_wifi_password
+```
+
+- `API_KEY` — used by the ESP32 to authenticate requests (set to any secret string)
+- `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` — from your [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
+- `WIFI_SSID` / `WIFI_PASSWORD` — for the ESP32 to connect to your network
+
+### 2. Install & run the server
+
+```bash
+cd server
+uv sync
+uv run uvicorn main:app --host 0.0.0.0 --port 7333
+```
+
+Requires Python 3.14+ and [uv](https://github.com/astral-sh/uv).
+
+### 3. Authorize Spotify
+
+1. In your Spotify app settings, add `http://127.0.0.1:7333/v1/spotify/callback` as a Redirect URI
+2. Visit `http://127.0.0.1:7333/v1/spotify/auth` in your browser and approve access
+3. Tokens are saved to `server/.spotify_tokens.json` and refresh automatically
+
+### 4. Flash the firmware
+
+```bash
+pio run --target upload
+```
+
+Requires [PlatformIO](https://platformio.org/). The build reads `.env` automatically for Wi-Fi and API key config.
+
 ## Firmware
 
 ### Requirements
@@ -44,6 +92,8 @@ Create a `.env` file in the project root:
 API_KEY=your_secret_key
 SPOTIFY_CLIENT_ID=your_client_id
 SPOTIFY_CLIENT_SECRET=your_client_secret
+WIFI_SSID=your_network_name
+WIFI_PASSWORD=your_wifi_password
 ```
 
 | Variable | Description |
@@ -51,6 +101,8 @@ SPOTIFY_CLIENT_SECRET=your_client_secret
 | `API_KEY` | Required. All endpoints (except Spotify OAuth) require `X-API-Key` header matching this value. |
 | `SPOTIFY_CLIENT_ID` | From your [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) |
 | `SPOTIFY_CLIENT_SECRET` | From your [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) |
+| `WIFI_SSID` | Wi-Fi network name for the ESP32 |
+| `WIFI_PASSWORD` | Wi-Fi password for the ESP32 |
 
 ---
 
