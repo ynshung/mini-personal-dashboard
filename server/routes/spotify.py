@@ -13,7 +13,7 @@ TOKENS_FILE = Path(__file__).parent.parent / ".spotify_tokens.json"
 SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token"
 SPOTIFY_AUTH_URL = "https://accounts.spotify.com/authorize"
 REDIRECT_URI = "http://127.0.0.1:7333/v1/spotify/callback"
-SCOPES = "user-read-currently-playing user-read-playback-state"
+SCOPES = "user-read-currently-playing user-read-playback-state user-modify-playback-state"
 
 
 def _client_id() -> str:
@@ -71,6 +71,7 @@ async def _get_access_token() -> str:
 
 @router.get("/spotify/auth")
 async def spotify_auth():
+    TOKENS_FILE.unlink(missing_ok=True)
     params = (
         f"?client_id={_client_id()}"
         f"&response_type=code"
@@ -104,6 +105,58 @@ async def spotify_callback(code: str):
     })
 
     return {"detail": "Spotify authorized successfully"}
+
+
+@router.post("/spotify/play")
+async def spotify_play():
+    token = await _get_access_token()
+    async with httpx.AsyncClient() as client:
+        resp = await client.put(
+            "https://api.spotify.com/v1/me/player/play",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    if not resp.is_success:
+        raise HTTPException(status_code=resp.status_code, detail=f"Spotify API error: {resp.text}")
+    return {"detail": "Playback resumed"}
+
+
+@router.post("/spotify/pause")
+async def spotify_pause():
+    token = await _get_access_token()
+    async with httpx.AsyncClient() as client:
+        resp = await client.put(
+            "https://api.spotify.com/v1/me/player/pause",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    if not resp.is_success:
+        raise HTTPException(status_code=resp.status_code, detail=f"Spotify API error: {resp.text}")
+    return {"detail": "Playback paused"}
+
+
+@router.post("/spotify/next")
+async def spotify_next():
+    token = await _get_access_token()
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            "https://api.spotify.com/v1/me/player/next",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    if not resp.is_success:
+        raise HTTPException(status_code=resp.status_code, detail=f"Spotify API error: {resp.text}")
+    return {"detail": "Skipped to next track"}
+
+
+@router.post("/spotify/previous")
+async def spotify_previous():
+    token = await _get_access_token()
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            "https://api.spotify.com/v1/me/player/previous",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    if not resp.is_success:
+        raise HTTPException(status_code=resp.status_code, detail=f"Spotify API error: {resp.text}")
+    return {"detail": "Skipped to previous track"}
 
 
 @router.get("/spotify/now-playing")
