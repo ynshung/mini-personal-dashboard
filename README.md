@@ -20,11 +20,13 @@ SPOTIFY_CLIENT_ID=your_client_id
 SPOTIFY_CLIENT_SECRET=your_client_secret
 WIFI_SSID=your_network_name
 WIFI_PASSWORD=your_wifi_password
+DEVELOPMENT_MODE=true
 ```
 
 - `API_KEY` — used by the ESP32 to authenticate requests (set to any secret string)
 - `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` — from your [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
 - `WIFI_SSID` / `WIFI_PASSWORD` — for the ESP32 to connect to your network
+- `DEVELOPMENT_MODE` — set to `true` to skip API key checks (for local development)
 
 ### 2. Install & run the server
 
@@ -94,15 +96,17 @@ SPOTIFY_CLIENT_ID=your_client_id
 SPOTIFY_CLIENT_SECRET=your_client_secret
 WIFI_SSID=your_network_name
 WIFI_PASSWORD=your_wifi_password
+DEVELOPMENT_MODE=true
 ```
 
 | Variable | Description |
 |---|---|
-| `API_KEY` | Required. All endpoints (except Spotify OAuth) require `X-API-Key` header matching this value. |
+| `API_KEY` | Required (unless `DEVELOPMENT_MODE` is set). All endpoints (except Spotify OAuth) require `X-API-Key` header matching this value. |
 | `SPOTIFY_CLIENT_ID` | From your [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) |
 | `SPOTIFY_CLIENT_SECRET` | From your [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) |
 | `WIFI_SSID` | Wi-Fi network name for the ESP32 |
 | `WIFI_PASSWORD` | Wi-Fi password for the ESP32 |
+| `DEVELOPMENT_MODE` | Set to `true` to disable API key authentication (for local development only) |
 
 ---
 
