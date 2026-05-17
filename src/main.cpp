@@ -12,7 +12,7 @@ const char *apiKey   = API_KEY;
 const char *hostname = "esp32-dashboard";
 
 TFT_eSPI tft = TFT_eSPI();
-OneButtonTiny btn(19, true); // GPIO 19, active-low
+OneButtonTiny btn(19, false, false); // GPIO 19, active-high, no internal pull-up
 
 const uint16_t COL_GREY      = 0x52AA;
 const uint16_t COL_BAR_BG    = 0x39C7; // white at 25% opacity on black
