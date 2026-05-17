@@ -143,19 +143,14 @@ async def spotify_toggle():
             "https://api.spotify.com/v1/me/player",
             headers={"Authorization": f"Bearer {token}"},
         )
-
-    is_playing = False
-    if state_resp.status_code == 200:
-        is_playing = state_resp.json().get("is_playing", False)
-
-    action = "pause" if is_playing else "play"
-    async with httpx.AsyncClient() as client:
+        is_playing = state_resp.status_code == 200 and state_resp.json().get("is_playing", False)
+        action = "pause" if is_playing else "play"
         resp = await client.put(
             f"https://api.spotify.com/v1/me/player/{action}",
             headers={"Authorization": f"Bearer {token}"},
         )
 
-    if not resp.is_success and resp.status_code != 204:
+    if not resp.is_success:
         raise HTTPException(status_code=resp.status_code, detail=f"Spotify API error: {resp.text}")
 
     return Response(status_code=204)
