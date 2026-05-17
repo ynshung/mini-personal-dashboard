@@ -15,3 +15,5 @@ server/.spotify_tokens.json
 # Editor & tooling
 .vscode/
 .claude/
+
+.pio
