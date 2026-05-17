@@ -9,7 +9,7 @@ CACHE_DIR = Path(__file__).parent.parent / ".album_art_cache"
 FONTS_DIR = Path(__file__).parent.parent / "fonts"
 MAX_CACHE_ENTRIES = 50
 IMG_SIZE = 240
-CIRCLE_RADIUS = 110
+CIRCLE_RADIUS = 130
 
 
 def _get_font(name: str, size: int) -> ImageFont.FreeTypeFont:
