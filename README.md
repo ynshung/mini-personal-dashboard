@@ -1,6 +1,24 @@
 # Mini Personal Dashboard
 
-A local HTTP server that exposes dashboard data for a NodeMCU + GC9A01 display.
+A local HTTP server that exposes dashboard data for a NodeMCU + GC9A01 display, and ESP32 firmware to drive it.
+
+## Firmware
+
+### Requirements
+
+- [PlatformIO](https://platformio.org/) CLI or IDE extension
+
+### Build & Flash
+
+```bash
+pio run                  # build firmware
+pio run --target upload  # build and flash to device
+pio device monitor       # open serial monitor (115200 baud)
+```
+
+Board: ESP32 (`esp32dev`), framework: Arduino. Source in `src/main.cpp`.
+
+---
 
 ## Server
 

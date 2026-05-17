@@ -4,11 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-All commands run from `server/`:
+Server — run from `server/`:
 
 ```bash
 uv sync                                                       # install dependencies
 uv run uvicorn main:app --host 0.0.0.0 --port 7333 --reload  # dev server
+```
+
+Firmware — run from project root:
+
+```bash
+pio run                  # build firmware
+pio run --target upload  # build and flash to device
+pio device monitor       # open serial monitor (115200 baud)
 ```
 
 ## Architecture
@@ -20,6 +28,10 @@ This is a FastAPI server (`server/`) that exposes JSON endpoints for a NodeMCU m
 **Spotify auth flow:** `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` come from `.env` (project root). The OAuth refresh token is obtained once by visiting `/v1/spotify/auth` in a browser and is cached in `server/.spotify_tokens.json` (gitignored). The `now-playing` endpoint auto-refreshes the access token when it expires.
 
 **cc-usage auth:** reads the Claude Code OAuth token directly from the macOS Keychain (`Claude Code-credentials`) — no config needed, macOS only.
+
+## Firmware
+
+Source lives in `src/main.cpp`. Board: ESP32 (`esp32dev`), framework: Arduino. Libraries go in `lib/`, shared headers in `include/`.
 
 ## Target display
 
