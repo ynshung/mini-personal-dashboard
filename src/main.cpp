@@ -41,24 +41,20 @@ unsigned long lastFetchMs = 0;
 bool hasArt = false;
 bool pollFailed = false;
 
-// --- WiFi ---
+// --- Display ---
 
-void initWiFi() {
-    WiFi.mode(WIFI_STA);
-    WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
-    WiFi.setHostname(hostname);
-    WiFi.begin(ssid, password);
-    Serial.print("Connecting to WiFi...");
-    while (WiFi.status() != WL_CONNECTED) {
-        Serial.print('.');
-        delay(1000);
-    }
-    Serial.printf("\nConnected! IP: %s\n", WiFi.localIP().toString().c_str());
-    Serial.printf("Hostname: %s\n", WiFi.getHostname());
-    Serial.printf("RSSI: %d\n", WiFi.RSSI());
+void drawStatus(const char* msg) {
+    tft.fillScreen(TFT_BLACK);
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextFont(2);
+    tft.setTextColor(COL_GREY, TFT_BLACK);
+    tft.drawString(msg, CX, CX);
 }
 
-// --- Display ---
+void drawIdle() {
+    drawStatus("Not playing");
+    hasArt = false;
+}
 
 void drawProgressBar(uint32_t progress_ms, uint32_t duration_ms, bool is_playing) {
     tft.fillRoundRect(BAR_X, BAR_Y, BAR_W, BAR_H, BAR_H / 2, COL_BAR_BG);
@@ -77,13 +73,27 @@ void drawTick() {
     drawProgressBar(estimated, current.duration_ms, true);
 }
 
-void drawIdle() {
+// --- WiFi ---
+
+void initWiFi() {
+    WiFi.mode(WIFI_STA);
+    WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
+    WiFi.setHostname(hostname);
+    WiFi.begin(ssid, password);
     tft.fillScreen(TFT_BLACK);
     tft.setTextDatum(MC_DATUM);
     tft.setTextFont(2);
     tft.setTextColor(COL_GREY, TFT_BLACK);
-    tft.drawString("Not playing", CX, CX);
-    hasArt = false;
+    tft.drawString("Connecting to", CX, CX - 8);
+    tft.drawString(ssid, CX, CX + 8);
+    Serial.print("Connecting to WiFi...");
+    while (WiFi.status() != WL_CONNECTED) {
+        Serial.print('.');
+        delay(1000);
+    }
+    Serial.printf("\nConnected! IP: %s\n", WiFi.localIP().toString().c_str());
+    Serial.printf("Hostname: %s\n", WiFi.getHostname());
+    Serial.printf("RSSI: %d\n", WiFi.RSSI());
 }
 
 // --- Album art streaming ---
@@ -210,8 +220,8 @@ void setup() {
     Serial.begin(115200);
     tft.init();
     tft.setRotation(0);
-    drawIdle();
     initWiFi();
+    drawStatus("Connecting to server...");
 }
 
 void loop() {
@@ -236,7 +246,9 @@ void loop() {
             lastTick = now;
         } else {
             Serial.println("WiFi disconnected, reconnecting...");
+            if (!hasArt) drawStatus("WiFi disconnected");
             initWiFi();
+            drawStatus("Connecting to server...");
         }
     }
 
