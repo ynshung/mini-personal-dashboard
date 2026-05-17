@@ -109,32 +109,6 @@ async def spotify_callback(code: str):
     return {"detail": "Spotify authorized successfully"}
 
 
-@router.post("/spotify/play")
-async def spotify_play():
-    token = await _get_access_token()
-    async with httpx.AsyncClient() as client:
-        resp = await client.put(
-            "https://api.spotify.com/v1/me/player/play",
-            headers={"Authorization": f"Bearer {token}"},
-        )
-    if not resp.is_success:
-        raise HTTPException(status_code=resp.status_code, detail=f"Spotify API error: {resp.text}")
-    return {"detail": "Playback resumed"}
-
-
-@router.post("/spotify/pause")
-async def spotify_pause():
-    token = await _get_access_token()
-    async with httpx.AsyncClient() as client:
-        resp = await client.put(
-            "https://api.spotify.com/v1/me/player/pause",
-            headers={"Authorization": f"Bearer {token}"},
-        )
-    if not resp.is_success:
-        raise HTTPException(status_code=resp.status_code, detail=f"Spotify API error: {resp.text}")
-    return {"detail": "Playback paused"}
-
-
 @router.post("/spotify/next")
 async def spotify_next():
     token = await _get_access_token()
@@ -159,6 +133,32 @@ async def spotify_previous():
     if not resp.is_success:
         raise HTTPException(status_code=resp.status_code, detail=f"Spotify API error: {resp.text}")
     return {"detail": "Skipped to previous track"}
+
+
+@router.post("/spotify/toggle")
+async def spotify_toggle():
+    token = await _get_access_token()
+    async with httpx.AsyncClient() as client:
+        state_resp = await client.get(
+            "https://api.spotify.com/v1/me/player",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    is_playing = False
+    if state_resp.status_code == 200:
+        is_playing = state_resp.json().get("is_playing", False)
+
+    action = "pause" if is_playing else "play"
+    async with httpx.AsyncClient() as client:
+        resp = await client.put(
+            f"https://api.spotify.com/v1/me/player/{action}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    if not resp.is_success and resp.status_code != 204:
+        raise HTTPException(status_code=resp.status_code, detail=f"Spotify API error: {resp.text}")
+
+    return Response(status_code=204)
 
 
 @router.get("/spotify/now-playing")
