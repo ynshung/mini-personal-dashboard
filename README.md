@@ -1,6 +1,14 @@
 # Mini Personal Dashboard
 
+| | |
+|---|---|
+| ![Spotify screen](docs/assets/spotify.jpeg) | ![CC Usage screen](docs/assets/cc.jpeg) |
+
 A local HTTP server that exposes dashboard data for a NodeMCU + GC9A01 display, and ESP32 firmware to drive it.
+
+## Disclaimer
+
+This is a personal project which is heavily developed using Claude Code. Please be aware that it may contain bugs or vulnerabilities. Use at your own risk, and feel free to review the code yourself.
 
 ## Features
 
