@@ -205,6 +205,7 @@ void fetchNowPlaying() {
         return;
     }
 
+    bool wasFailedBefore = pollFailed;
     pollFailed = false;
 
     TrackState next;
@@ -220,7 +221,7 @@ void fetchNowPlaying() {
     lastFetchMs = millis();
 
     if (current.track_id.length() == 0) {
-        if (hasArt || track_changed) drawIdle();
+        if (hasArt || track_changed || wasFailedBefore) drawIdle();
         return;
     }
 
