@@ -21,14 +21,14 @@ SPOTIFY_CLIENT_ID=your_client_id
 SPOTIFY_CLIENT_SECRET=your_client_secret
 WIFI_SSID=your_network_name
 WIFI_PASSWORD=your_wifi_password
-DEVELOPMENT_MODE=true
+DEVELOPMENT_MODE=false
 ```
 
 - `API_KEY` — used by the ESP32 to authenticate requests (set to any secret string)
 - `SERVER_URL` — base URL of the server (e.g. `http://192.168.1.100:7333`), used by the ESP32
 - `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` — from your [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
 - `WIFI_SSID` / `WIFI_PASSWORD` — for the ESP32 to connect to your network
-- `DEVELOPMENT_MODE` — set to `true` to skip API key checks (for local development)
+- `DEVELOPMENT_MODE` — set to `true` to skip API key checks (for local development only, default `false`)
 
 ### 2. Install & run the server
 
@@ -38,7 +38,7 @@ uv sync
 uv run uvicorn main:app --host 0.0.0.0 --port 7333
 ```
 
-Requires Python 3.14+ and [uv](https://github.com/astral-sh/uv).
+Requires Python 3.12+ and [uv](https://github.com/astral-sh/uv).
 
 ### 3. Authorize Spotify
 
@@ -97,7 +97,7 @@ GPIO 19 Spotify controls work on both screens.
 
 The display has two screens toggled by GPIO 21.
 
-**Spotify screen** (default) — polls `/v1/spotify/now-playing` every 5 seconds:
+**Spotify screen** — polls `/v1/spotify/now-playing` every 5 seconds:
 
 - **Full-screen album art** — fetched from `/v1/spotify/now-playing/art` as a pre-composited RGB565 image, streamed row-by-row to the display (only on track change)
 - **Track name** and **artist** — rendered server-side with Pillow (Inter font) in a gradient overlay at the bottom of the album art
@@ -119,9 +119,9 @@ The display has two screens toggled by GPIO 21.
 
 ### Requirements
 
-- Python 3.14+
+- Python 3.12+
 - [uv](https://github.com/astral-sh/uv)
-- macOS (Keychain access required for Claude Code credentials)
+- macOS — required for the CC Usage feature (reads Claude Code OAuth token from the macOS Keychain)
 
 ### Setup & Run
 
@@ -142,7 +142,7 @@ SPOTIFY_CLIENT_ID=your_client_id
 SPOTIFY_CLIENT_SECRET=your_client_secret
 WIFI_SSID=your_network_name
 WIFI_PASSWORD=your_wifi_password
-DEVELOPMENT_MODE=true
+DEVELOPMENT_MODE=false
 ```
 
 | Variable | Description |
@@ -209,13 +209,9 @@ Redirects to Spotify's authorization page. Visit this once in a browser to autho
 
 ---
 
-### `POST /v1/spotify/play`
+### `POST /v1/spotify/toggle`
 
-Resumes playback on the active Spotify device.
-
-### `POST /v1/spotify/pause`
-
-Pauses playback on the active Spotify device.
+Toggles play/pause on the active Spotify device. Queries the current playback state and issues the appropriate play or pause command.
 
 ### `POST /v1/spotify/next`
 
@@ -262,6 +258,16 @@ Returns lightweight playback state for polling.
 | `401` | Not authorized — visit `/v1/spotify/auth` |
 | `500` | Missing `SPOTIFY_CLIENT_ID` or `SPOTIFY_CLIENT_SECRET` in `.env` |
 | `502` | Unexpected response from Spotify API |
+
+---
+
+### `GET /v1/spotify/now-playing/art/jpeg`
+
+Returns the current track's album art as a composited JPEG image (same pipeline as `/art`, but encoded as JPEG instead of raw RGB565). Useful for debugging or browser previewing.
+
+Returns `204 No Content` if nothing is playing.
+
+**Response:** `image/jpeg`
 
 ---
 
