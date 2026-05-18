@@ -84,22 +84,31 @@ Board: ESP32 (`esp32dev`), framework: Arduino. Source in `src/main.cpp`.
 
 ### Button Controls
 
-A single button on GPIO 19 controls Spotify playback:
+| GPIO | Gesture | Action |
+|---|---|---|
+| 19 | Single click | Toggle play/pause |
+| 19 | Double click | Next track |
+| 19 | Long press | Previous track |
+| 21 | Single click | Toggle between Spotify and CC usage screen |
 
-| Gesture | Action |
-|---|---|
-| Single click | Toggle play/pause |
-| Double click | Next track |
-| Long press | Previous track |
+GPIO 19 Spotify controls work on both screens.
 
 ### Display UI
 
-The ESP32 polls `/v1/spotify/now-playing` every 5 seconds and renders:
+The display has two screens toggled by GPIO 21.
+
+**Spotify screen** (default) — polls `/v1/spotify/now-playing` every 5 seconds:
 
 - **Full-screen album art** — fetched from `/v1/spotify/now-playing/art` as a pre-composited RGB565 image, streamed row-by-row to the display (only on track change)
 - **Track name** and **artist** — rendered server-side with Pillow (Inter font) in a gradient overlay at the bottom of the album art
 - **Progress bar** — 160×3 px at y=210, white fill when playing; interpolated locally every 250 ms between polls
 - **End-of-song detection** — immediately polls when estimated progress reaches song duration
+
+**CC Usage screen** — polls `/v1/cc-usage` every 30 seconds:
+
+- **5-hour** and **7-day** Claude Code plan utilization, each showing percentage, a color-coded progress bar, and time until reset
+- Bar/text color: white (0–60%), orange (61–99%), red (100%)
+- Shows `--` when a usage window is not applicable to the current plan
 
 ---
 

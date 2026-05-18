@@ -67,10 +67,16 @@ Hardware: GC9A01 240×240 round TFT, driven via SPI.
 - Base image (art + gradient + mask) cached in `server/.album_art_cache/` keyed by Spotify album ID; text composited per-request on top of cached base
 
 **Button controls (`src/main.cpp`):**
-- GPIO 19, active-high, no internal pull-up (OneButton library)
-- Single click → toggle play/pause (`/v1/spotify/toggle`)
-- Double click → next track (`/v1/spotify/next`)
-- Long press → previous track (`/v1/spotify/previous`)
+- GPIO 19, active-high, no internal pull-up (OneButton library) — Spotify controls, always active
+  - Single click → toggle play/pause (`/v1/spotify/toggle`)
+  - Double click → next track (`/v1/spotify/next`)
+  - Long press → previous track (`/v1/spotify/previous`)
+- GPIO 21, active-high, no internal pull-up — single click toggles between Spotify and CC usage screen
+
+**Screens (`src/main.cpp`):**
+- `SPOTIFY` (default): polls `/v1/spotify/now-playing` every 5 s, renders album art, progress bar
+- `CC_USAGE`: polls `/v1/cc-usage` every 30 s, renders 5-HR and 7-DAY utilization blocks; color thresholds 0–60% white, 61–99% orange, 100% red; `-1` sentinel means null (plan doesn't have that window)
+- On screen switch: renders stale data immediately, then fetches + re-renders; screens poll independently
 
 **Polling & rendering:**
 - `/v1/spotify/now-playing` returns lightweight JSON: `track_id`, `is_playing`, `progress_ms`, `duration_ms`
