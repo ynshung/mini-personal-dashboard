@@ -2,7 +2,7 @@
 
 ![Spotify screen](docs/assets/spotify.jpeg)![CC Usage screen](docs/assets/cc.jpeg)
 
-A local HTTP server that exposes dashboard data for a NodeMCU + GC9A01 display, and ESP32 firmware to drive it.
+A personal dashboard running on an ESP32 with a 240×240 round GC9A01 display. Shows Spotify now-playing with album art and playback controls, and Claude Code plan usage. Consists of a local FastAPI server (macOS) and ESP32 firmware that polls it over Wi-Fi.
 
 ## Disclaimer
 
@@ -127,7 +127,7 @@ The display has two screens toggled by GPIO 21.
 
 - Python 3.12+
 - [uv](https://github.com/astral-sh/uv)
-- macOS — required for the CC Usage feature (reads Claude Code OAuth token from the macOS Keychain)
+- macOS — required for the CC Usage feature (reads Claude Code OAuth token from the macOS Keychain) (Pretty sure can be used in Linux with from .claude dir)
 
 ### Setup & Run
 
