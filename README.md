@@ -6,7 +6,7 @@ A personal dashboard running on an ESP32 with a 240×240 round GC9A01 display. S
 
 ## Disclaimer
 
-This is a personal project which is heavily developed using Claude Code. Please be aware that it may contain bugs or vulnerabilities. Use at your own risk, and feel free to review the code yourself.
+This is a personal project which is heavily developed using Claude Code. Please be aware that it may contain bugs or vulnerabilities, and there may be new breaking changes at any time. Use at your own risk, and feel free to review or fork the code to suit it for yourself.
 
 ## Features
 
