@@ -5,6 +5,7 @@
 #include <TFT_eSPI.h>
 #include <OneButtonTiny.h>
 #include "NotoSans_Medium14.h"
+#include "claude_logo.h"
 
 const char *ssid     = WIFI_SSID;
 const char *password = WIFI_PASSWORD;
@@ -151,12 +152,9 @@ void drawCCBlock(int y, float pct, const char* label, const String& resets) {
 void drawCCUsage() {
     tft.fillScreen(TFT_BLACK);
 
-    // Title
-    tft.loadFont(NotoSans_Medium14);
-    tft.setTextDatum(MC_DATUM);
-    tft.setTextColor(COL_GREY, TFT_BLACK);
-    tft.drawString("Usage", CX, 72);
-    tft.unloadFont();
+    // Logo
+    tft.pushImage(CX - CLAUDE_LOGO_W / 2, 54 - CLAUDE_LOGO_H / 2,
+                  CLAUDE_LOGO_W, CLAUDE_LOGO_H, (uint16_t *)claude_logo);
 
     drawCCBlock(100, ccUsage.five_hour_pct, "5-HR",  ccUsage.five_hour_resets);
     drawCCBlock(152, ccUsage.seven_day_pct, "7-DAY", ccUsage.seven_day_resets);
