@@ -24,9 +24,12 @@ const uint16_t COL_BAR_PLAY  = 0x1CC4; // Spotify green #1DB954 in RGB565
 const uint16_t COL_BAR_ERROR = 0xFD24; // orange
 const uint16_t COL_RED       = 0xF800; // red
 const unsigned long CC_POLL_INTERVAL_MS = 10000;
+const unsigned long IDLE_TIMEOUT_MS    = 10UL * 60UL * 1000UL; // 10 minutes
 
-enum Screen { SPOTIFY, CC_USAGE };
+enum Screen { SPOTIFY, CC_USAGE, IDLE };
 Screen activeScreen = CC_USAGE;
+Screen prevScreen = CC_USAGE;
+unsigned long serverUnreachableSince = 0;
 
 struct CCUsage {
     float  five_hour_pct    = -1;
@@ -76,6 +79,16 @@ void drawStatus(const char* msg) {
 void drawIdle() {
     drawStatus("No playback");
     hasArt = false;
+}
+
+void drawSleepScreen() {
+    tft.fillScreen(TFT_BLACK);
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextColor(COL_GREY, TFT_BLACK);
+    tft.loadFont(NotoSans_Medium14);
+    tft.drawString("zZzZz", CX, 105);
+    tft.drawString("Press to wake", CX, 130);
+    tft.unloadFont();
 }
 
 void drawProgressBar(uint32_t progress_ms, uint32_t duration_ms, bool is_playing) {
@@ -276,6 +289,7 @@ void fetchNowPlaying() {
     if (code != 200) {
         Serial.printf("HTTP error: %d\n", code);
         http.end();
+        if (serverUnreachableSince == 0) serverUnreachableSince = millis();
         if (!pollFailed) {
             pollFailed = true;
             if (hasArt)
@@ -292,6 +306,7 @@ void fetchNowPlaying() {
     JsonDocument doc;
     if (deserializeJson(doc, payload)) {
         Serial.println("JSON parse error");
+        if (serverUnreachableSince == 0) serverUnreachableSince = millis();
         if (!pollFailed) {
             pollFailed = true;
             if (hasArt)
@@ -304,6 +319,7 @@ void fetchNowPlaying() {
 
     bool wasFailedBefore = pollFailed;
     pollFailed = false;
+    serverUnreachableSince = 0;
 
     TrackState next;
     next.is_playing  = doc["is_playing"]  | false;
@@ -345,6 +361,7 @@ void fetchCCUsage() {
     if (code != 200) {
         Serial.printf("CC usage HTTP error: %d\n", code);
         http.end();
+        if (serverUnreachableSince == 0) serverUnreachableSince = millis();
         ccNeedsFullRedraw = true;
         drawStatus("CC usage unavailable");
         return;
@@ -356,6 +373,7 @@ void fetchCCUsage() {
     JsonDocument doc;
     if (deserializeJson(doc, payload)) {
         Serial.println("CC usage JSON parse error");
+        if (serverUnreachableSince == 0) serverUnreachableSince = millis();
         ccNeedsFullRedraw = true;
         drawStatus("CC usage unavailable");
         return;
@@ -381,6 +399,7 @@ void fetchCCUsage() {
 
     ccUsage.refreshed_ago = doc["refreshed_ago"] | "";
 
+    serverUnreachableSince = 0;
     Serial.printf("CC usage: 5h=%.1f%% 7d=%.1f%%\n",
         ccUsage.five_hour_pct, ccUsage.seven_day_pct);
     if (ccNeedsFullRedraw) drawCCUsage(); else updateCCUsage();
@@ -388,16 +407,45 @@ void fetchCCUsage() {
 
 // --- Arduino entry points ---
 
+void wakeFromIdle() {
+    activeScreen = prevScreen;
+    serverUnreachableSince = 0;
+    pollFailed = false;
+    if (activeScreen == CC_USAGE) {
+        ccNeedsFullRedraw = true;
+        drawCCUsage();
+        fetchCCUsage();
+        lastCCPoll = millis();
+    } else {
+        hasArt = false;
+        current.track_id = "\x01";
+        drawStatus("Loading...");
+        fetchNowPlaying();
+        lastPoll = millis();
+        lastTick = lastPoll;
+    }
+}
+
 void setup() {
     Serial.begin(115200);
     tft.init();
     tft.setRotation(0);
     initWiFi();
     drawStatus("Connecting to server...");
-    btn.attachClick([]() { sendCommand("/v1/spotify/toggle"); });
-    btn.attachDoubleClick([]() { sendCommand("/v1/spotify/next"); });
-    btn.attachLongPressStart([]() { sendCommand("/v1/spotify/previous"); });
+    btn.attachClick([]() {
+        if (activeScreen == IDLE) { wakeFromIdle(); return; }
+        sendCommand("/v1/spotify/toggle");
+    });
+    btn.attachDoubleClick([]() {
+        if (activeScreen == IDLE) { wakeFromIdle(); return; }
+        sendCommand("/v1/spotify/next");
+    });
+    btn.attachLongPressStart([]() {
+        if (activeScreen == IDLE) { wakeFromIdle(); return; }
+        sendCommand("/v1/spotify/previous");
+    });
     btn2.attachClick([]() {
+        if (activeScreen == IDLE) { wakeFromIdle(); return; }
         activeScreen = (activeScreen == SPOTIFY) ? CC_USAGE : SPOTIFY;
         if (activeScreen == CC_USAGE) {
             drawCCUsage();
@@ -421,6 +469,13 @@ void loop() {
     btn.tick();
     btn2.tick();
     unsigned long now = millis();
+
+    if (serverUnreachableSince > 0 && activeScreen != IDLE
+            && (now - serverUnreachableSince) >= IDLE_TIMEOUT_MS) {
+        prevScreen = activeScreen;
+        activeScreen = IDLE;
+        drawSleepScreen();
+    }
 
     if (activeScreen == SPOTIFY) {
         // End-of-song poll
