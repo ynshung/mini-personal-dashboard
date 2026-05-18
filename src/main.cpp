@@ -74,7 +74,7 @@ void drawStatus(const char* msg) {
 }
 
 void drawIdle() {
-    drawStatus("Not playing");
+    drawStatus("No playback");
     hasArt = false;
 }
 
@@ -167,7 +167,7 @@ void updateCCUsage() {
 
 void drawCCUsage() {
     tft.fillScreen(TFT_BLACK);
-    tft.pushImage(CX - CLAUDE_LOGO_W / 2, 46 - CLAUDE_LOGO_H / 2,
+    tft.pushImage(CX - CLAUDE_LOGO_W / 2, 52 - CLAUDE_LOGO_H / 2,
                   CLAUDE_LOGO_W, CLAUDE_LOGO_H, (uint16_t *)claude_logo);
     ccNeedsFullRedraw = false;
     updateCCUsage();
@@ -259,11 +259,12 @@ void sendCommand(const char* path) {
     http.begin(String(serverUrl) + path);
     http.addHeader("X-API-Key", apiKey);
     int code = http.POST("");
-    http.end();
-    Serial.printf("sendCommand %s -> %d\n", path, code);
     if (code == 204) {
         lastPoll = millis() - POLL_INTERVAL_MS + 200;
+    } else {
+        Serial.printf("sendCommand %s -> %d: %s\n", path, code, http.getString().c_str());
     }
+    http.end();
 }
 
 void fetchNowPlaying() {

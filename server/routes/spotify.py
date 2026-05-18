@@ -118,7 +118,8 @@ async def spotify_next():
             headers={"Authorization": f"Bearer {token}"},
         )
     if not resp.is_success:
-        raise HTTPException(status_code=resp.status_code, detail=f"Spotify API error: {resp.text}")
+        print(f"Spotify control error: {resp.text}")
+        raise HTTPException(status_code=503, detail="Spotify control error")
     return {"detail": "Skipped to next track"}
 
 
@@ -131,7 +132,8 @@ async def spotify_previous():
             headers={"Authorization": f"Bearer {token}"},
         )
     if not resp.is_success:
-        raise HTTPException(status_code=resp.status_code, detail=f"Spotify API error: {resp.text}")
+        print(f"Spotify control error: {resp.text}")
+        raise HTTPException(status_code=503, detail="Spotify control error")
     return {"detail": "Skipped to previous track"}
 
 
@@ -151,7 +153,8 @@ async def spotify_toggle():
         )
 
     if not resp.is_success:
-        raise HTTPException(status_code=resp.status_code, detail=f"Spotify API error: {resp.text}")
+        print(f"Spotify control error: {resp.text}")
+        raise HTTPException(status_code=503, detail="Spotify control error")
 
     return Response(status_code=204)
 
