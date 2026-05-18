@@ -71,7 +71,7 @@ Hardware: GC9A01 240×240 round TFT, driven via SPI.
   - Single click → toggle play/pause (`/v1/spotify/toggle`)
   - Double click → next track (`/v1/spotify/next`)
   - Long press → previous track (`/v1/spotify/previous`)
-- GPIO 21, active-high, no internal pull-up — single click toggles between Spotify and CC usage screen
+- GPIO 21, active-high, no internal pull-up — single click toggles between Spotify and CC usage screen; long press restarts the device (`ESP.restart()`)
 
 **Screens (`src/main.cpp`):**
 - `SPOTIFY`: polls `/v1/spotify/now-playing` every 5 s, renders album art, progress bar

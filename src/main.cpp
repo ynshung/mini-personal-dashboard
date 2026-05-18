@@ -463,6 +463,9 @@ void setup() {
             lastTick = lastPoll;
         }
     });
+    btn2.attachLongPressStart([]() {
+        ESP.restart();
+    });
 }
 
 void loop() {

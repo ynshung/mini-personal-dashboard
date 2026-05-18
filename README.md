@@ -96,6 +96,7 @@ Board: ESP32 (`esp32dev`), framework: Arduino. Source in `src/main.cpp`.
 | 19 | Double click | Next track |
 | 19 | Long press | Previous track |
 | 21 | Single click | Toggle between Spotify and CC usage screen |
+| 21 | Long press | Restart device |
 
 GPIO 19 Spotify controls work on both screens.
 
