@@ -26,11 +26,11 @@ def _load_cache() -> tuple[dict, float] | None:
 
 def _format_refreshed_ago(age_secs: float) -> str:
     if age_secs < 30:
-        return "Just now"
+        return "just now"
     if age_secs < 60:
-        return "A moment ago"
+        return "a moment ago"
     if age_secs < 120:
-        return "A minute ago"
+        return "a minute ago"
     if age_secs < 180:
         return "2 minutes ago"
     return ">3 minutes ago"
