@@ -14,12 +14,27 @@ const char *hostname = "esp32-dashboard";
 
 TFT_eSPI tft = TFT_eSPI();
 OneButtonTiny btn(19, false, false); // GPIO 19, active-high, no internal pull-up
+OneButtonTiny btn2(21, false, false); // GPIO 21, active-high, no internal pull-up
 
 const uint16_t COL_GREY      = 0x52AA;
 const uint16_t COL_BAR_BG    = 0x39C7; // white at 25% opacity on black
 const uint16_t COL_BAR_FILL  = 0xE71C; // white at 90% opacity on black
 const uint16_t COL_BAR_PLAY  = 0x1CC4; // Spotify green #1DB954 in RGB565
 const uint16_t COL_BAR_ERROR = 0xFD24; // orange
+const uint16_t COL_RED       = 0xF800; // red
+const unsigned long CC_POLL_INTERVAL_MS = 30000;
+
+enum Screen { SPOTIFY, CC_USAGE };
+Screen activeScreen = SPOTIFY;
+
+struct CCUsage {
+    float  five_hour_pct    = -1;
+    String five_hour_resets = "";
+    float  seven_day_pct    = -1;
+    String seven_day_resets = "";
+};
+CCUsage ccUsage;
+unsigned long lastCCPoll = 0;
 
 const int CX    = 120;
 const int BAR_W = 120;
@@ -75,6 +90,72 @@ void drawTick() {
     uint32_t estimated = current.progress_ms + (uint32_t)(millis() - lastFetchMs);
     if (estimated > current.duration_ms) estimated = current.duration_ms;
     drawProgressBar(estimated, current.duration_ms, true);
+}
+
+uint16_t usageColor(float pct) {
+    if (pct >= 100.0f) return COL_RED;
+    if (pct >= 61.0f)  return COL_BAR_ERROR;
+    return COL_BAR_FILL;
+}
+
+void drawCCBlock(int y, float pct, const char* label, const String& resets) {
+    const int LEFT  = 50;
+    const int RIGHT = 190;
+    const int BAR_W = 140;
+    const int BAR_H = 4;
+
+    tft.loadFont(NotoSans_Medium14);
+
+    // Percentage (left) and label (right) on same row
+    tft.setTextDatum(ML_DATUM);
+    if (pct < 0) {
+        tft.setTextColor(COL_GREY, TFT_BLACK);
+        tft.drawString("--", LEFT, y);
+    } else {
+        tft.setTextColor(usageColor(pct), TFT_BLACK);
+        char buf[8];
+        snprintf(buf, sizeof(buf), "%d%%", (int)pct);
+        tft.drawString(buf, LEFT, y);
+    }
+
+    tft.setTextDatum(MR_DATUM);
+    tft.setTextColor(COL_GREY, TFT_BLACK);
+    tft.drawString(label, RIGHT, y);
+
+    tft.unloadFont();
+
+    // Progress bar
+    int barY = y + 13;
+    tft.fillRoundRect(LEFT, barY, BAR_W, BAR_H, BAR_H / 2, COL_BAR_BG);
+    if (pct >= 0) {
+        float clamped = pct > 100.0f ? 100.0f : pct;
+        int fillW = (int)(clamped / 100.0f * BAR_W);
+        if (fillW > 0)
+            tft.fillRoundRect(LEFT, barY, fillW, BAR_H, BAR_H / 2, usageColor(clamped));
+    }
+
+    // Resets label
+    if (resets.length() > 0) {
+        tft.loadFont(NotoSans_Medium14);
+        tft.setTextDatum(TL_DATUM);
+        tft.setTextColor(COL_GREY, TFT_BLACK);
+        tft.drawString(resets.c_str(), LEFT, barY + BAR_H + 4);
+        tft.unloadFont();
+    }
+}
+
+void drawCCUsage() {
+    tft.fillScreen(TFT_BLACK);
+
+    // Title
+    tft.loadFont(NotoSans_Medium14);
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextColor(COL_GREY, TFT_BLACK);
+    tft.drawString("Usage", CX, 72);
+    tft.unloadFont();
+
+    drawCCBlock(100, ccUsage.five_hour_pct, "5-HR",  ccUsage.five_hour_resets);
+    drawCCBlock(152, ccUsage.seven_day_pct, "7-DAY", ccUsage.seven_day_resets);
 }
 
 // --- WiFi ---
@@ -239,6 +320,52 @@ void fetchNowPlaying() {
         current.duration_ms);
 }
 
+void fetchCCUsage() {
+    HTTPClient http;
+    http.begin(String(serverUrl) + "/v1/cc-usage");
+    http.addHeader("X-API-Key", apiKey);
+
+    int code = http.GET();
+    if (code != 200) {
+        Serial.printf("CC usage HTTP error: %d\n", code);
+        http.end();
+        drawStatus("CC usage unavailable");
+        return;
+    }
+
+    String payload = http.getString();
+    http.end();
+
+    JsonDocument doc;
+    if (deserializeJson(doc, payload)) {
+        Serial.println("CC usage JSON parse error");
+        drawStatus("CC usage unavailable");
+        return;
+    }
+
+    JsonVariant fh = doc["five_hour"];
+    if (fh.isNull() || fh["utilization"].isNull()) {
+        ccUsage.five_hour_pct    = -1;
+        ccUsage.five_hour_resets = "";
+    } else {
+        ccUsage.five_hour_pct    = fh["utilization"].as<float>();
+        ccUsage.five_hour_resets = fh["resets_at"] | "";
+    }
+
+    JsonVariant sd = doc["seven_day"];
+    if (sd.isNull() || sd["utilization"].isNull()) {
+        ccUsage.seven_day_pct    = -1;
+        ccUsage.seven_day_resets = "";
+    } else {
+        ccUsage.seven_day_pct    = sd["utilization"].as<float>();
+        ccUsage.seven_day_resets = sd["resets_at"] | "";
+    }
+
+    Serial.printf("CC usage: 5h=%.1f%% 7d=%.1f%%\n",
+        ccUsage.five_hour_pct, ccUsage.seven_day_pct);
+    drawCCUsage();
+}
+
 // --- Arduino entry points ---
 
 void setup() {
@@ -250,39 +377,66 @@ void setup() {
     btn.attachClick([]() { sendCommand("/v1/spotify/toggle"); });
     btn.attachDoubleClick([]() { sendCommand("/v1/spotify/next"); });
     btn.attachLongPressStart([]() { sendCommand("/v1/spotify/previous"); });
+    btn2.attachClick([]() {
+        activeScreen = (activeScreen == SPOTIFY) ? CC_USAGE : SPOTIFY;
+        if (activeScreen == CC_USAGE) {
+            drawCCUsage();
+            fetchCCUsage();
+            lastCCPoll = millis();
+        } else {
+            // Switching back to Spotify: the screen was wiped by CC usage.
+            // Set a sentinel track_id so fetchNowPlaying() always sees a track
+            // change — triggering art re-fetch if playing, or drawIdle() if not.
+            hasArt = false;
+            current.track_id = "\x01";
+            drawStatus("Loading...");
+            fetchNowPlaying();
+            lastPoll = millis();
+            lastTick = lastPoll;
+        }
+    });
 }
 
 void loop() {
     btn.tick();
+    btn2.tick();
     unsigned long now = millis();
 
-    // End-of-song poll: immediately check when estimated progress reaches duration
-    if (current.is_playing && current.duration_ms > 0) {
-        uint32_t estimated = current.progress_ms + (uint32_t)(now - lastFetchMs);
-        if (estimated >= current.duration_ms) {
-            if (WiFi.status() == WL_CONNECTED) {
-                fetchNowPlaying();
-                lastPoll = millis();
-                lastTick = lastPoll;
+    if (activeScreen == SPOTIFY) {
+        // End-of-song poll
+        if (current.is_playing && current.duration_ms > 0) {
+            uint32_t estimated = current.progress_ms + (uint32_t)(now - lastFetchMs);
+            if (estimated >= current.duration_ms) {
+                if (WiFi.status() == WL_CONNECTED) {
+                    fetchNowPlaying();
+                    lastPoll = millis();
+                    lastTick = lastPoll;
+                }
             }
         }
-    }
 
-    if (now - lastPoll >= POLL_INTERVAL_MS) {
-        lastPoll = now;
-        if (WiFi.status() == WL_CONNECTED) {
-            fetchNowPlaying();
-            lastTick = now;
-        } else {
-            Serial.println("WiFi disconnected, reconnecting...");
-            if (!hasArt) drawStatus("WiFi disconnected");
-            initWiFi();
-            drawStatus("Connecting to server...");
+        if (now - lastPoll >= POLL_INTERVAL_MS) {
+            lastPoll = now;
+            if (WiFi.status() == WL_CONNECTED) {
+                fetchNowPlaying();
+                lastTick = now;
+            } else {
+                Serial.println("WiFi disconnected, reconnecting...");
+                if (!hasArt) drawStatus("WiFi disconnected");
+                initWiFi();
+                drawStatus("Connecting to server...");
+            }
         }
-    }
 
-    if (current.is_playing && (now - lastTick >= TICK_INTERVAL_MS)) {
-        lastTick = now;
-        drawTick();
+        if (current.is_playing && (now - lastTick >= TICK_INTERVAL_MS)) {
+            lastTick = now;
+            drawTick();
+        }
+    } else if (activeScreen == CC_USAGE) {
+        if (now - lastCCPoll >= CC_POLL_INTERVAL_MS) {
+            lastCCPoll = now;
+            if (WiFi.status() == WL_CONNECTED)
+                fetchCCUsage();
+        }
     }
 }
