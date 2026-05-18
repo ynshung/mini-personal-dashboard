@@ -82,6 +82,8 @@ async def cc_usage():
     cached = _load_cache()
     if cached is not None:
         data, ts = cached
+        data["five_hour"]["resets_at"] = _format_resets_at(data["five_hour"]["resets_at"])
+        data["seven_day"]["resets_at"] = _format_resets_at(data["seven_day"]["resets_at"])
         data["refreshed_ago"] = _format_refreshed_ago(time.time() - ts)
         return data
 
@@ -106,13 +108,15 @@ async def cc_usage():
     result = {
         "five_hour": {
             "utilization": five_hour.get("utilization") if five_hour else None,
-            "resets_at": _format_resets_at(five_hour.get("resets_at") if five_hour else None),
+            "resets_at": five_hour.get("resets_at") if five_hour else None,
         },
         "seven_day": {
             "utilization": seven_day.get("utilization") if seven_day else None,
-            "resets_at": _format_resets_at(seven_day.get("resets_at") if seven_day else None),
+            "resets_at": seven_day.get("resets_at") if seven_day else None,
         },
     }
     _save_cache(result)
+    result["five_hour"]["resets_at"] = _format_resets_at(result["five_hour"]["resets_at"])
+    result["seven_day"]["resets_at"] = _format_resets_at(result["seven_day"]["resets_at"])
     result["refreshed_ago"] = "Just now"
     return result
