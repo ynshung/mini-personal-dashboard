@@ -66,6 +66,12 @@ Hardware: GC9A01 240×240 round TFT, driven via SPI.
 - Fetches album art JPEG from Spotify, resizes to 240×240, applies gradient overlay (rows 132–240), circular mask (radius 110), composites track/artist text, converts to RGB565
 - Base image (art + gradient + mask) cached in `server/.album_art_cache/` keyed by Spotify album ID; text composited per-request on top of cached base
 
+**Button controls (`src/main.cpp`):**
+- GPIO 19, active-high, no internal pull-up (OneButton library)
+- Single click → toggle play/pause (`/v1/spotify/toggle`)
+- Double click → next track (`/v1/spotify/next`)
+- Long press → previous track (`/v1/spotify/previous`)
+
 **Polling & rendering:**
 - `/v1/spotify/now-playing` returns lightweight JSON: `track_id`, `is_playing`, `progress_ms`, `duration_ms`
 - `/v1/spotify/now-playing/art` returns raw RGB565 binary (115,200 bytes) — called only on track change

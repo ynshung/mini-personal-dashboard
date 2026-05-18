@@ -82,6 +82,16 @@ Board: ESP32 (`esp32dev`), framework: Arduino. Source in `src/main.cpp`.
 | VCC        | 3.3 V     |
 | GND        | GND       |
 
+### Button Controls
+
+A single button on GPIO 19 controls Spotify playback:
+
+| Gesture | Action |
+|---|---|
+| Single click | Toggle play/pause |
+| Double click | Next track |
+| Long press | Previous track |
+
 ### Display UI
 
 The ESP32 polls `/v1/spotify/now-playing` every 5 seconds and renders:
