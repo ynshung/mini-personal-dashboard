@@ -104,11 +104,12 @@ The display has two screens toggled by GPIO 21.
 - **Progress bar** — 160×3 px at y=210, white fill when playing; interpolated locally every 250 ms between polls
 - **End-of-song detection** — immediately polls when estimated progress reaches song duration
 
-**CC Usage screen** — polls `/v1/cc-usage` every 30 seconds:
+**CC Usage screen** (default) — polls `/v1/cc-usage` every 10 seconds:
 
 - **5-hour** and **7-day** Claude Code plan utilization, each showing percentage, a color-coded progress bar, and time until reset
 - Bar/text color: white (0–60%), orange (61–99%), red (100%)
 - Shows `--` when a usage window is not applicable to the current plan
+- Server cached for 2 minutes to avoid hitting 429 rate limits
 
 ---
 
@@ -172,7 +173,7 @@ The token is read automatically from the macOS Keychain (`Claude Code-credential
   },
   "seven_day": {
     "utilization": 66.0,
-    "resets_at": "45 hr 10 min"
+    "resets_at": "Tue 6:00 PM"
   }
 }
 ```
@@ -182,7 +183,7 @@ The token is read automatically from the macOS Keychain (`Claude Code-credential
 | `five_hour.utilization` | `float \| null` | 5-hour session usage as a percentage (0–100). `null` if not applicable to the plan. |
 | `five_hour.resets_at` | `string \| null` | Time until the 5-hour window resets, e.g. `"1 hr 10 min"`. `null` if not applicable. |
 | `seven_day.utilization` | `float \| null` | 7-day weekly usage as a percentage (0–100). `null` if not applicable to the plan. |
-| `seven_day.resets_at` | `string \| null` | Time until the weekly window resets. Under 24 h: `"X hr Y min"`. Over 24 h: `"Sun 6:00 PM"` (local time). `null` if not applicable. |
+| `seven_day.resets_at` | `string \| null` | Time until the weekly window resets. Under 24 h: `"X hr Y min"`. Over 24 h: day and local time e.g. `"Tue 6:00 PM"`. `null` if not applicable. |
 
 **Error responses**
 

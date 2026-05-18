@@ -1,11 +1,34 @@
 import json
 import subprocess
 from datetime import datetime, timezone
+from pathlib import Path
+import time
+import os
 
 import httpx
 from fastapi import APIRouter, HTTPException
 
 router = APIRouter()
+
+CC_USAGE_CACHE_TTL = int(os.getenv("CC_USAGE_CACHE_TTL", "120"))
+_CACHE_FILE = Path(__file__).parent.parent / ".cc_usage_cache.json"
+
+
+def _load_cache() -> dict | None:
+    try:
+        raw = json.loads(_CACHE_FILE.read_text())
+        if time.time() - raw["ts"] < CC_USAGE_CACHE_TTL:
+            return raw["data"]
+    except Exception:
+        pass
+    return None
+
+
+def _save_cache(data: dict) -> None:
+    try:
+        _CACHE_FILE.write_text(json.dumps({"ts": time.time(), "data": data}))
+    except Exception:
+        pass
 
 
 def _get_token() -> str:
@@ -44,6 +67,10 @@ def _format_resets_at(resets_at: str | None) -> str | None:
 
 @router.get("/cc-usage")
 async def cc_usage():
+    cached = _load_cache()
+    if cached is not None:
+        return cached
+
     token = _get_token()
     async with httpx.AsyncClient() as client:
         resp = await client.get(
@@ -62,7 +89,7 @@ async def cc_usage():
     five_hour = data.get("five_hour")
     seven_day = data.get("seven_day")
 
-    return {
+    result = {
         "five_hour": {
             "utilization": five_hour.get("utilization") if five_hour else None,
             "resets_at": _format_resets_at(five_hour.get("resets_at") if five_hour else None),
@@ -72,3 +99,5 @@ async def cc_usage():
             "resets_at": _format_resets_at(seven_day.get("resets_at") if seven_day else None),
         },
     }
+    _save_cache(result)
+    return result

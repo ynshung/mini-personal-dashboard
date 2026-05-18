@@ -22,10 +22,10 @@ const uint16_t COL_BAR_FILL  = 0xE71C; // white at 90% opacity on black
 const uint16_t COL_BAR_PLAY  = 0x1CC4; // Spotify green #1DB954 in RGB565
 const uint16_t COL_BAR_ERROR = 0xFD24; // orange
 const uint16_t COL_RED       = 0xF800; // red
-const unsigned long CC_POLL_INTERVAL_MS = 30000;
+const unsigned long CC_POLL_INTERVAL_MS = 10000;
 
 enum Screen { SPOTIFY, CC_USAGE };
-Screen activeScreen = SPOTIFY;
+Screen activeScreen = CC_USAGE;
 
 struct CCUsage {
     float  five_hour_pct    = -1;
@@ -149,6 +149,8 @@ void drawCCBlock(int y, float pct, const char* label, const String& resets) {
 }
 
 void drawCCUsage() {
+    tft.fillScreen(TFT_BLACK);
+
     // Title
     tft.loadFont(NotoSans_Medium14);
     tft.setTextDatum(MC_DATUM);
@@ -382,7 +384,6 @@ void setup() {
     btn2.attachClick([]() {
         activeScreen = (activeScreen == SPOTIFY) ? CC_USAGE : SPOTIFY;
         if (activeScreen == CC_USAGE) {
-            tft.fillScreen(TFT_BLACK);
             drawCCUsage();
             fetchCCUsage();
             lastCCPoll = millis();
