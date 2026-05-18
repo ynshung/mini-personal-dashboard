@@ -104,6 +104,10 @@ void drawCCBlock(int y, float pct, const char* label, const String& resets) {
     const int BAR_W = 140;
     const int BAR_H = 4;
 
+    // Clear text rows to handle variable-width redraws (e.g. "100%" -> "5%")
+    tft.fillRect(LEFT, y - 8,  RIGHT - LEFT, 16, TFT_BLACK); // pct + label row
+    tft.fillRect(LEFT, y + 21, RIGHT - LEFT, 16, TFT_BLACK); // resets row
+
     tft.loadFont(NotoSans_Medium14);
 
     // Percentage (left) and label (right) on same row
@@ -145,8 +149,6 @@ void drawCCBlock(int y, float pct, const char* label, const String& resets) {
 }
 
 void drawCCUsage() {
-    tft.fillScreen(TFT_BLACK);
-
     // Title
     tft.loadFont(NotoSans_Medium14);
     tft.setTextDatum(MC_DATUM);
@@ -380,6 +382,7 @@ void setup() {
     btn2.attachClick([]() {
         activeScreen = (activeScreen == SPOTIFY) ? CC_USAGE : SPOTIFY;
         if (activeScreen == CC_USAGE) {
+            tft.fillScreen(TFT_BLACK);
             drawCCUsage();
             fetchCCUsage();
             lastCCPoll = millis();
