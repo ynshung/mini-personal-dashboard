@@ -37,6 +37,7 @@ struct CCUsage {
 };
 CCUsage ccUsage;
 unsigned long lastCCPoll = 0;
+bool ccNeedsFullRedraw = true;
 
 const int CX    = 120;
 const int BAR_W = 120;
@@ -150,16 +151,11 @@ void drawCCBlock(int y, float pct, const char* label, const String& resets) {
     }
 }
 
-void drawCCUsage() {
-    tft.fillScreen(TFT_BLACK);
-
-    // Logo
-    tft.pushImage(CX - CLAUDE_LOGO_W / 2, 46 - CLAUDE_LOGO_H / 2,
-                  CLAUDE_LOGO_W, CLAUDE_LOGO_H, (uint16_t *)claude_logo);
-
+void updateCCUsage() {
     drawCCBlock(92, ccUsage.five_hour_pct, "5-HR",  ccUsage.five_hour_resets);
     drawCCBlock(144, ccUsage.seven_day_pct, "7-DAY", ccUsage.seven_day_resets);
 
+    tft.fillRect(CX - 90, 199, 180, 16, TFT_BLACK);
     if (ccUsage.refreshed_ago.length() > 0) {
         tft.loadFont(NotoSans_Medium14);
         tft.setTextDatum(MC_DATUM);
@@ -167,6 +163,14 @@ void drawCCUsage() {
         tft.drawString(ccUsage.refreshed_ago.c_str(), CX, 207);
         tft.unloadFont();
     }
+}
+
+void drawCCUsage() {
+    tft.fillScreen(TFT_BLACK);
+    tft.pushImage(CX - CLAUDE_LOGO_W / 2, 46 - CLAUDE_LOGO_H / 2,
+                  CLAUDE_LOGO_W, CLAUDE_LOGO_H, (uint16_t *)claude_logo);
+    ccNeedsFullRedraw = false;
+    updateCCUsage();
 }
 
 // --- WiFi ---
@@ -340,6 +344,7 @@ void fetchCCUsage() {
     if (code != 200) {
         Serial.printf("CC usage HTTP error: %d\n", code);
         http.end();
+        ccNeedsFullRedraw = true;
         drawStatus("CC usage unavailable");
         return;
     }
@@ -350,6 +355,7 @@ void fetchCCUsage() {
     JsonDocument doc;
     if (deserializeJson(doc, payload)) {
         Serial.println("CC usage JSON parse error");
+        ccNeedsFullRedraw = true;
         drawStatus("CC usage unavailable");
         return;
     }
@@ -376,7 +382,7 @@ void fetchCCUsage() {
 
     Serial.printf("CC usage: 5h=%.1f%% 7d=%.1f%%\n",
         ccUsage.five_hour_pct, ccUsage.seven_day_pct);
-    drawCCUsage();
+    if (ccNeedsFullRedraw) drawCCUsage(); else updateCCUsage();
 }
 
 // --- Arduino entry points ---
