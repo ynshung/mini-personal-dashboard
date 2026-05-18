@@ -33,6 +33,7 @@ struct CCUsage {
     String five_hour_resets = "";
     float  seven_day_pct    = -1;
     String seven_day_resets = "";
+    String refreshed_ago    = "";
 };
 CCUsage ccUsage;
 unsigned long lastCCPoll = 0;
@@ -100,14 +101,14 @@ uint16_t usageColor(float pct) {
 }
 
 void drawCCBlock(int y, float pct, const char* label, const String& resets) {
-    const int LEFT  = 50;
-    const int RIGHT = 190;
-    const int BAR_W = 140;
+    const int BAR_W = 170;
     const int BAR_H = 4;
+    const int LEFT  = CX - BAR_W / 2;
+    const int RIGHT = CX + BAR_W / 2;
 
     // Clear text rows to handle variable-width redraws (e.g. "100%" -> "5%")
-    tft.fillRect(LEFT, y - 8,  RIGHT - LEFT, 16, TFT_BLACK); // pct + label row
-    tft.fillRect(LEFT, y + 21, RIGHT - LEFT, 16, TFT_BLACK); // resets row
+    tft.fillRect(LEFT, y - 8,  BAR_W, 16, TFT_BLACK); // pct + label row
+    tft.fillRect(LEFT, y + 21, BAR_W, 16, TFT_BLACK); // resets row
 
     tft.loadFont(NotoSans_Medium14);
 
@@ -153,11 +154,19 @@ void drawCCUsage() {
     tft.fillScreen(TFT_BLACK);
 
     // Logo
-    tft.pushImage(CX - CLAUDE_LOGO_W / 2, 54 - CLAUDE_LOGO_H / 2,
+    tft.pushImage(CX - CLAUDE_LOGO_W / 2, 46 - CLAUDE_LOGO_H / 2,
                   CLAUDE_LOGO_W, CLAUDE_LOGO_H, (uint16_t *)claude_logo);
 
-    drawCCBlock(100, ccUsage.five_hour_pct, "5-HR",  ccUsage.five_hour_resets);
-    drawCCBlock(152, ccUsage.seven_day_pct, "7-DAY", ccUsage.seven_day_resets);
+    drawCCBlock(92, ccUsage.five_hour_pct, "5-HR",  ccUsage.five_hour_resets);
+    drawCCBlock(144, ccUsage.seven_day_pct, "7-DAY", ccUsage.seven_day_resets);
+
+    if (ccUsage.refreshed_ago.length() > 0) {
+        tft.loadFont(NotoSans_Medium14);
+        tft.setTextDatum(MC_DATUM);
+        tft.setTextColor(COL_GREY, TFT_BLACK);
+        tft.drawString(ccUsage.refreshed_ago.c_str(), CX, 207);
+        tft.unloadFont();
+    }
 }
 
 // --- WiFi ---
@@ -362,6 +371,8 @@ void fetchCCUsage() {
         ccUsage.seven_day_pct    = sd["utilization"].as<float>();
         ccUsage.seven_day_resets = sd["resets_at"] | "";
     }
+
+    ccUsage.refreshed_ago = doc["refreshed_ago"] | "";
 
     Serial.printf("CC usage: 5h=%.1f%% 7d=%.1f%%\n",
         ccUsage.five_hour_pct, ccUsage.seven_day_pct);

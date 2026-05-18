@@ -14,14 +14,26 @@ CC_USAGE_CACHE_TTL = int(os.getenv("CC_USAGE_CACHE_TTL", "120"))
 _CACHE_FILE = Path(__file__).parent.parent / ".cc_usage_cache.json"
 
 
-def _load_cache() -> dict | None:
+def _load_cache() -> tuple[dict, float] | None:
     try:
         raw = json.loads(_CACHE_FILE.read_text())
         if time.time() - raw["ts"] < CC_USAGE_CACHE_TTL:
-            return raw["data"]
+            return raw["data"], raw["ts"]
     except Exception:
         pass
     return None
+
+
+def _format_refreshed_ago(age_secs: float) -> str:
+    if age_secs < 30:
+        return "just now"
+    if age_secs < 60:
+        return "a moment ago"
+    if age_secs < 120:
+        return "a minute ago"
+    if age_secs < 180:
+        return "2 minutes ago"
+    return ">3 minutes ago"
 
 
 def _save_cache(data: dict) -> None:
@@ -69,7 +81,9 @@ def _format_resets_at(resets_at: str | None) -> str | None:
 async def cc_usage():
     cached = _load_cache()
     if cached is not None:
-        return cached
+        data, ts = cached
+        data["refreshed_ago"] = _format_refreshed_ago(time.time() - ts)
+        return data
 
     token = _get_token()
     async with httpx.AsyncClient() as client:
@@ -100,4 +114,5 @@ async def cc_usage():
         },
     }
     _save_cache(result)
+    result["refreshed_ago"] = "Just now"
     return result

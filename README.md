@@ -106,7 +106,9 @@ The display has two screens toggled by GPIO 21.
 
 **CC Usage screen** (default) — polls `/v1/cc-usage` every 10 seconds:
 
+- **Claude logo** — shown at the top in orange (#d6755a)
 - **5-hour** and **7-day** Claude Code plan utilization, each showing percentage, a color-coded progress bar, and time until reset
+- **Last refreshed** label at the bottom (e.g. "Just now", "A moment ago", "A minute ago")
 - Bar/text color: white (0–60%), orange (61–99%), red (100%)
 - Shows `--` when a usage window is not applicable to the current plan
 - Server cached for 2 minutes to avoid hitting 429 rate limits
@@ -174,7 +176,8 @@ The token is read automatically from the macOS Keychain (`Claude Code-credential
   "seven_day": {
     "utilization": 66.0,
     "resets_at": "Tue 6:00 PM"
-  }
+  },
+  "refreshed_ago": "A moment ago"
 }
 ```
 
@@ -184,6 +187,7 @@ The token is read automatically from the macOS Keychain (`Claude Code-credential
 | `five_hour.resets_at` | `string \| null` | Time until the 5-hour window resets, e.g. `"1 hr 10 min"`. `null` if not applicable. |
 | `seven_day.utilization` | `float \| null` | 7-day weekly usage as a percentage (0–100). `null` if not applicable to the plan. |
 | `seven_day.resets_at` | `string \| null` | Time until the weekly window resets. Under 24 h: `"X hr Y min"`. Over 24 h: day and local time e.g. `"Tue 6:00 PM"`. `null` if not applicable. |
+| `refreshed_ago` | `string` | How long ago the upstream data was fetched: `"Just now"` (<30 s), `"A moment ago"` (<60 s), `"A minute ago"` (<2 min), `"2 minutes ago"` (<3 min), `">3 minutes ago"`. |
 
 **Error responses**
 

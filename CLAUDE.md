@@ -75,7 +75,7 @@ Hardware: GC9A01 240×240 round TFT, driven via SPI.
 
 **Screens (`src/main.cpp`):**
 - `SPOTIFY`: polls `/v1/spotify/now-playing` every 5 s, renders album art, progress bar
-- `CC_USAGE` (default): polls `/v1/cc-usage` every 10 s, renders 5-HR and 7-DAY utilization blocks; color thresholds 0–60% white, 61–99% orange, 100% red; `-1` sentinel means null (plan doesn't have that window); server caches upstream response for 2 min
+- `CC_USAGE` (default): polls `/v1/cc-usage` every 10 s; renders Claude logo (`include/claude_logo.h`, RGB565 bitmap stored byte-swapped for TFT_eSPI), 5-HR and 7-DAY utilization blocks, and a "last refreshed" label at the bottom; color thresholds 0–60% white, 61–99% orange, 100% red; `-1` sentinel means null (plan doesn't have that window); server caches upstream response for 2 min and includes `refreshed_ago` string in every response
 - On screen switch: renders stale data immediately, then fetches + re-renders; screens poll independently
 
 **Polling & rendering:**
