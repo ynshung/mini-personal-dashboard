@@ -4,6 +4,7 @@
 #include <ArduinoJson.h>
 #include <TFT_eSPI.h>
 #include <OneButtonTiny.h>
+#include "NotoSans_Medium14.h"
 
 const char *ssid     = WIFI_SSID;
 const char *password = WIFI_PASSWORD;
@@ -48,9 +49,10 @@ bool pollFailed = false;
 void drawStatus(const char* msg) {
     tft.fillScreen(TFT_BLACK);
     tft.setTextDatum(MC_DATUM);
-    tft.setTextFont(2);
     tft.setTextColor(COL_GREY, TFT_BLACK);
+    tft.loadFont(NotoSans_Medium14);
     tft.drawString(msg, CX, CX);
+    tft.unloadFont();
 }
 
 void drawIdle() {
@@ -84,10 +86,11 @@ void initWiFi() {
     WiFi.begin(ssid, password);
     tft.fillScreen(TFT_BLACK);
     tft.setTextDatum(MC_DATUM);
-    tft.setTextFont(2);
     tft.setTextColor(COL_GREY, TFT_BLACK);
-    tft.drawString("Connecting to", CX, CX - 8);
-    tft.drawString(ssid, CX, CX + 8);
+    tft.loadFont(NotoSans_Medium14);
+    tft.drawString("Connecting to", CX, CX - 20);
+    tft.drawString(ssid, CX, CX + 20);
+    tft.unloadFont();
     Serial.print("Connecting to WiFi...");
     while (WiFi.status() != WL_CONNECTED) {
         Serial.print('.');
