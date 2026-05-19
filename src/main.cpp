@@ -21,8 +21,8 @@ const uint16_t COL_GREY      = 0x52AA;
 const uint16_t COL_BAR_BG    = 0x39C7; // white at 25% opacity on black
 const uint16_t COL_BAR_FILL  = 0xE71C; // white at 90% opacity on black
 const uint16_t COL_BAR_PLAY  = 0x1CC4; // Spotify green #1DB954 in RGB565
-const uint16_t COL_BAR_ERROR = 0xFD24; // orange
-const uint16_t COL_RED       = 0xF800; // red
+const uint16_t COL_BAR_ERROR = 0xF583; // orange #fab219
+const uint16_t COL_RED       = 0xC9E7; // muted red #d03b3b
 const unsigned long CC_POLL_INTERVAL_MS = 10000;
 const unsigned long IDLE_TIMEOUT_MS    = 10UL * 60UL * 1000UL; // 10 minutes
 
@@ -108,9 +108,20 @@ void drawTick() {
     drawProgressBar(estimated, current.duration_ms, true);
 }
 
+uint16_t lerpRGB565(uint16_t c1, uint16_t c2, float t) {
+    int r1 = (c1 >> 11) & 0x1F, r2 = (c2 >> 11) & 0x1F;
+    int g1 = (c1 >>  5) & 0x3F, g2 = (c2 >>  5) & 0x3F;
+    int b1 =  c1        & 0x1F, b2 =  c2        & 0x1F;
+    int r = (int)(r1 + (r2 - r1) * t + 0.5f);
+    int g = (int)(g1 + (g2 - g1) * t + 0.5f);
+    int b = (int)(b1 + (b2 - b1) * t + 0.5f);
+    return ((uint16_t)r << 11) | ((uint16_t)g << 5) | (uint16_t)b;
+}
+
 uint16_t usageColor(float pct) {
-    if (pct >= 100.0f) return COL_RED;
-    if (pct >= 61.0f)  return COL_BAR_ERROR;
+    if (pct >= 95.0f)  return COL_RED;
+    if (pct >= 80.0f)  return lerpRGB565(COL_BAR_ERROR, COL_RED, (pct - 80.0f) / 15.0f);
+    if (pct >  50.0f)  return lerpRGB565(COL_BAR_FILL, COL_BAR_ERROR, (pct - 50.0f) / 30.0f);
     return COL_BAR_FILL;
 }
 
