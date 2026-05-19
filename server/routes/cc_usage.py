@@ -24,6 +24,13 @@ def _load_cache() -> tuple[dict, float] | None:
     return None
 
 
+def _save_error_cache(status: int, detail: str) -> None:
+    try:
+        _CACHE_FILE.write_text(json.dumps({"ts": time.time(), "data": {"error": True, "status": status, "detail": detail}}))
+    except Exception:
+        pass
+
+
 def _format_refreshed_ago(age_secs: float) -> str:
     if age_secs < 30:
         return "just now"
@@ -82,6 +89,8 @@ async def cc_usage():
     cached = _load_cache()
     if cached is not None:
         data, ts = cached
+        if data.get("error"):
+            raise HTTPException(status_code=data["status"], detail=data["detail"])
         data["five_hour"]["resets_at"] = _format_resets_at(data["five_hour"]["resets_at"])
         data["seven_day"]["resets_at"] = _format_resets_at(data["seven_day"]["resets_at"])
         data["refreshed_ago"] = _format_refreshed_ago(time.time() - ts)
@@ -97,9 +106,13 @@ async def cc_usage():
             },
         )
     if resp.status_code == 401:
-        raise HTTPException(status_code=401, detail="Claude Code token expired — re-login via Claude Code")
+        detail = "Claude Code token expired — re-login via Claude Code"
+        _save_error_cache(401, detail)
+        raise HTTPException(status_code=401, detail=detail)
     if not resp.is_success:
-        raise HTTPException(status_code=502, detail=f"Upstream error {resp.status_code}")
+        detail = f"Upstream error {resp.status_code}"
+        _save_error_cache(502, detail)
+        raise HTTPException(status_code=502, detail=detail)
 
     data = resp.json()
     five_hour = data.get("five_hour")
