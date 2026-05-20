@@ -93,11 +93,16 @@ def apply_circular_mask(img: Image.Image) -> Image.Image:
 
 
 class RtspGrabber:
-    def __init__(self, url: str, mode: str, idle_timeout: float, grab_interval: float):
+    def __init__(self, url: str, mode: str, idle_timeout: float, grab_interval: float,
+                 label: str, overlay: "OverlayConfig | None", index: int, total: int):
         self.url = url
         self.mode = mode
         self.idle_timeout = idle_timeout
         self.grab_interval = grab_interval
+        self._label = label
+        self._overlay = overlay
+        self._index = index
+        self._total = total
         self._frame: bytes | None = None
         self._lock = threading.Lock()
         self._last_poll = time.monotonic()
@@ -150,8 +155,17 @@ class RtspGrabber:
                             img = frame.to_image().convert("RGB")
                             img = resize_frame(img, self.mode)
                             img = apply_circular_mask(img)
+                            if self._overlay is not None:
+                                ov = self._overlay
+                                img = composite_overlay(
+                                    img, self._index,
+                                    total=self._total if ov.show_dots else 1,
+                                    label=self._label if ov.show_label else "",
+                                    label_y=ov.label_y,
+                                    dots_y=ov.dots_y,
+                                )
                             buf = BytesIO()
-                            img.save(buf, "JPEG", quality=75, optimize=True)
+                            img.save(buf, "JPEG", quality=75)
                             with self._lock:
                                 self._frame = buf.getvalue()
                             last_encode = now
@@ -273,6 +287,10 @@ async def get_rtsp_frame(index: int = Query(0, ge=0)):
                 mode=stream_cfg.mode,
                 idle_timeout=config.idle_timeout,
                 grab_interval=stream_cfg.grab_interval,
+                label=stream_cfg.label,
+                overlay=config.overlay,
+                index=index,
+                total=len(config.streams),
             )
         grabber = _grabbers[index]
 
@@ -283,20 +301,6 @@ async def get_rtsp_frame(index: int = Query(0, ge=0)):
     frame = grabber.get_frame()
     if frame is None:
         frame = _make_placeholder()
-
-    if config.overlay is not None:
-        ov = config.overlay
-        img = Image.open(BytesIO(frame)).convert("RGB")
-        img = composite_overlay(
-            img, index,
-            total=len(config.streams) if ov.show_dots else 1,
-            label=stream_cfg.label if ov.show_label else "",
-            label_y=ov.label_y,
-            dots_y=ov.dots_y,
-        )
-        buf = BytesIO()
-        img.save(buf, "JPEG", quality=75, optimize=True)
-        frame = buf.getvalue()
 
     return Response(
         content=frame,

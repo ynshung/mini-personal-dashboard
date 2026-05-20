@@ -108,26 +108,34 @@ void drawSleepScreen() {
 
 
 void rtspNetTask(void *) {
+    HTTPClient http;
+    String connectedUrl = "";
+
     for (;;) {
         xSemaphoreTake(rtspFreeSem, portMAX_DELAY);
 
         if (WiFi.status() != WL_CONNECTED) {
+            if (connectedUrl.length() > 0) { http.end(); connectedUrl = ""; }
             xSemaphoreGive(rtspFreeSem);
             vTaskDelay(pdMS_TO_TICKS(1000));
             continue;
         }
 
-        HTTPClient http;
         String url = String(serverUrl) + "/v1/rtsp/frame?index=" + String(rtspIndex);
-        http.begin(url);
-        http.addHeader("X-API-Key", apiKey);
-        const char *headerKeys[] = {"X-Stream-Count"};
-        http.collectHeaders(headerKeys, 1);
+        if (url != connectedUrl) {
+            if (connectedUrl.length() > 0) http.end();
+            http.begin(url);
+            http.addHeader("X-API-Key", apiKey);
+            const char *headerKeys[] = {"X-Stream-Count"};
+            http.collectHeaders(headerKeys, 1);
+            connectedUrl = url;
+        }
 
         int code = http.GET();
         if (code != 200) {
             Serial.printf("RTSP HTTP error: %d\n", code);
             http.end();
+            connectedUrl = "";
             if (serverUnreachableSince == 0) serverUnreachableSince = millis();
             rtspFetchError = true;
             xSemaphoreGive(rtspFreeSem);
@@ -142,6 +150,7 @@ void rtspNetTask(void *) {
         if (contentLength <= 0 || contentLength > (int)sizeof(rtspBuf[0])) {
             Serial.printf("RTSP unexpected size: %d\n", contentLength);
             http.end();
+            connectedUrl = "";
             xSemaphoreGive(rtspFreeSem);
             vTaskDelay(pdMS_TO_TICKS(500));
             continue;
@@ -156,13 +165,14 @@ void rtspNetTask(void *) {
                 stream->readBytes(rtspBuf[rtspWriteIdx] + received, toRead);
                 received += toRead;
             } else {
-                vTaskDelay(1);
+                taskYIELD();
             }
         }
-        http.end();
 
         if (received != contentLength) {
             Serial.printf("RTSP incomplete: %d/%d\n", received, contentLength);
+            http.end();
+            connectedUrl = "";
             xSemaphoreGive(rtspFreeSem);
             continue;
         }
