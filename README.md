@@ -60,6 +60,7 @@ Edit `server/rtsp_config.json`:
 ```json
 {
   "idle_timeout_s": 30,
+  "show_overlay": true,
   "streams": [
     {
       "url": "rtsp://user:pass@192.168.1.100:554/stream1",
@@ -74,6 +75,7 @@ Edit `server/rtsp_config.json`:
 - `mode`: `"fill"` = center-crop to circle; `"fit"` = letterbox
 - `grab_interval_s`: server-side frame capture rate in seconds
 - `idle_timeout_s`: seconds before the server stops a stream with no active polling (recommended: 30+)
+- `show_overlay`: when `true` (default), the server composites the stream label and camera dots indicator onto the JPEG before sending; set to `false` to send the raw frame
 
 This file is gitignored (may contain credentials in URLs).
 
@@ -144,7 +146,7 @@ The display has three screens cycled by GPIO 21.
 **RTSP Camera screen** — polls `/v1/rtsp/frame?index=N` every 1 second:
 
 - **Live camera frame** — server decodes H.264 RTSP stream, resizes to 240×240 with circular mask, returns as JPEG
-- **Stream label** — shown at the bottom (from config)
+- **Stream label and dots indicator** — composited server-side onto the JPEG (controlled by `show_overlay` in config); label shown near the bottom, dots above it indicate selected stream out of total
 - **Multi-stream navigation** — single/double click GPIO 19 to cycle next/previous stream
 - Configure streams in `server/rtsp_config.json` (copy from `server/rtsp_config.json.example`)
 
@@ -219,10 +221,9 @@ Returns the latest JPEG frame from the RTSP stream at position `N` in `rtsp_conf
 
 | Header | Description |
 |---|---|
-| `X-Stream-Label` | Label string from config |
 | `X-Stream-Count` | Total number of configured streams |
 
-Returns a black circular placeholder JPEG while the grabber is starting up (before the first frame is available).
+Returns a black circular placeholder JPEG while the grabber is starting up (before the first frame is available). If `show_overlay` is enabled, the label and dots indicator are composited into the image before encoding.
 
 **Error responses**
 
