@@ -240,6 +240,12 @@ def _make_placeholder() -> bytes:
     global _placeholder
     if _placeholder is None:
         img = Image.new("RGB", (IMG_SIZE, IMG_SIZE), (0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        text = "Loading..."
+        bbox = draw.textbbox((0, 0), text, font=_OVERLAY_FONT)
+        x = CX - (bbox[2] - bbox[0]) // 2
+        y = CX - (bbox[3] - bbox[1]) // 2
+        draw.text((x, y), text, fill=COL_GREY, font=_OVERLAY_FONT)
         img = apply_circular_mask(img)
         buf = BytesIO()
         img.save(buf, "JPEG", quality=75)
