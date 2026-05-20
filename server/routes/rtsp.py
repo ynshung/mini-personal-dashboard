@@ -8,10 +8,48 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 IMG_SIZE = 240
 CIRCLE_RADIUS = 124
+CX = IMG_SIZE // 2
+
+FONTS_DIR = Path(__file__).parent.parent / "fonts"
+COL_GREY   = (82,  85,  82)   # matches COL_GREY RGB565 0x52AA
+COL_DIM    = (58,  57,  58)   # matches COL_BAR_BG RGB565 0x39C7
+
+def _load_font(size: int) -> ImageFont.FreeTypeFont:
+    path = FONTS_DIR / "NotoSansCJK-Medium.ttc"
+    try:
+        return ImageFont.truetype(str(path), size)
+    except OSError:
+        return ImageFont.load_default(size)
+
+_OVERLAY_FONT = _load_font(14)
+
+
+def composite_overlay(img: Image.Image, index: int, total: int, label: str) -> Image.Image:
+    img = img.copy()
+    draw = ImageDraw.Draw(img)
+
+    if total > 1:
+        dot_r, dot_gap, dot_y = 3, 13, 204
+        n = min(total, 20)
+        start_x = CX - ((n - 1) * dot_gap) // 2
+        for i in range(n):
+            x = start_x + i * dot_gap
+            fill = COL_GREY if i == index else COL_DIM
+            draw.ellipse((x - dot_r, dot_y - dot_r, x + dot_r, dot_y + dot_r), fill=fill)
+
+    if label:
+        bbox = draw.textbbox((0, 0), label, font=_OVERLAY_FONT)
+        text_w = bbox[2] - bbox[0]
+        text_h = bbox[3] - bbox[1]
+        x = CX - text_w // 2
+        y = 224 - text_h
+        draw.text((x, y), label, fill=COL_GREY, font=_OVERLAY_FONT)
+
+    return img
 
 
 def resize_frame(img: Image.Image, mode: str) -> Image.Image:
@@ -133,12 +171,13 @@ class StreamConfig:
 @dataclass
 class RtspConfig:
     idle_timeout: float
+    show_overlay: bool
     streams: list[StreamConfig]
 
 
 def load_config() -> RtspConfig:
     if not CONFIG_PATH.exists():
-        return RtspConfig(idle_timeout=10.0, streams=[])
+        return RtspConfig(idle_timeout=10.0, show_overlay=True, streams=[])
     with CONFIG_PATH.open() as f:
         data = json.load(f)
     streams = [
@@ -152,6 +191,7 @@ def load_config() -> RtspConfig:
     ]
     return RtspConfig(
         idle_timeout=float(data.get("idle_timeout_s", 10.0)),
+        show_overlay=bool(data.get("show_overlay", True)),
         streams=streams,
     )
 
@@ -213,12 +253,15 @@ async def get_rtsp_frame(index: int = Query(0, ge=0)):
     if frame is None:
         frame = _make_placeholder()
 
-    safe_label = stream_cfg.label.replace("\r", " ").replace("\n", " ")
+    if config.show_overlay:
+        img = Image.open(BytesIO(frame)).convert("RGB")
+        img = composite_overlay(img, index, len(config.streams), stream_cfg.label)
+        buf = BytesIO()
+        img.save(buf, "JPEG", quality=75, optimize=True)
+        frame = buf.getvalue()
+
     return Response(
         content=frame,
         media_type="image/jpeg",
-        headers={
-            "X-Stream-Label": safe_label,
-            "X-Stream-Count": str(len(config.streams)),
-        },
+        headers={"X-Stream-Count": str(len(config.streams))},
     )

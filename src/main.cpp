@@ -70,7 +70,6 @@ bool pollFailed = false;
 const unsigned long RTSP_POLL_INTERVAL_MS = 1000;
 int  rtspIndex       = 0;
 int  rtspStreamCount = 1;
-String rtspLabel     = "";
 unsigned long lastRtspPoll = 0;
 
 // --- Display ---
@@ -99,41 +98,14 @@ void drawSleepScreen() {
     tft.unloadFont();
 }
 
-void drawRtspDots() {
-    if (rtspStreamCount <= 1) return;
-    const int DOT_R   = 3;
-    const int DOT_GAP = 13;
-    const int DOT_Y   = 204;
-    int n = min(rtspStreamCount, 20);
-    int startX = CX - ((n - 1) * DOT_GAP) / 2;
-    for (int i = 0; i < n; i++) {
-        int x = startX + i * DOT_GAP;
-        tft.fillCircle(x, DOT_Y, DOT_R, i == rtspIndex ? COL_GREY : COL_BAR_BG);
-    }
-}
-
-void drawRtspLabel() {
-    static String prevLabel = "";
-    if (rtspLabel != prevLabel) {
-        tft.fillRect(0, 211, 240, 14, TFT_BLACK);
-        prevLabel = rtspLabel;
-    }
-    if (rtspLabel.length() > 0) {
-        tft.loadFont(NotoSans_Medium14);
-        tft.setTextDatum(BC_DATUM);
-        tft.setTextColor(COL_GREY, TFT_BLACK);
-        tft.drawString(rtspLabel.c_str(), CX, 224);
-        tft.unloadFont();
-    }
-}
 
 void fetchRtspFrame() {
     HTTPClient http;
     String url = String(serverUrl) + "/v1/rtsp/frame?index=" + String(rtspIndex);
     http.begin(url);
     http.addHeader("X-API-Key", apiKey);
-    const char *headerKeys[] = {"X-Stream-Label", "X-Stream-Count"};
-    http.collectHeaders(headerKeys, 2);
+    const char *headerKeys[] = {"X-Stream-Count"};
+    http.collectHeaders(headerKeys, 1);
 
     int code = http.GET();
     if (code != 200) {
@@ -144,9 +116,7 @@ void fetchRtspFrame() {
         return;
     }
 
-    String label    = http.header("X-Stream-Label");
     String countStr = http.header("X-Stream-Count");
-    if (label.length() > 0)    rtspLabel = label;
     if (countStr.length() > 0) rtspStreamCount = countStr.toInt();
 
     int contentLength = http.getSize();
@@ -187,9 +157,7 @@ void fetchRtspFrame() {
     tft.endWrite();
     free(buf);
 
-    drawRtspDots();
-    drawRtspLabel();
-    Serial.printf("RTSP frame: index=%d label=%s\n", rtspIndex, rtspLabel.c_str());
+    Serial.printf("RTSP frame: index=%d\n", rtspIndex);
 }
 
 void drawProgressBar(uint32_t progress_ms, uint32_t duration_ms, bool is_playing) {
