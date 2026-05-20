@@ -32,11 +32,13 @@ Screen prevScreen = CC_USAGE;
 unsigned long serverUnreachableSince = 0;
 
 struct CCUsage {
-    float  five_hour_pct    = -1;
-    String five_hour_resets = "";
-    float  seven_day_pct    = -1;
-    String seven_day_resets = "";
-    String refreshed_ago    = "";
+    float  five_hour_pct      = -1;
+    float  five_hour_time_pct = -1;
+    String five_hour_resets   = "";
+    float  seven_day_pct      = -1;
+    float  seven_day_time_pct = -1;
+    String seven_day_resets   = "";
+    String refreshed_ago      = "";
 };
 CCUsage ccUsage;
 unsigned long lastCCPoll = 0;
@@ -125,7 +127,7 @@ uint16_t usageColor(float pct) {
     return COL_BAR_FILL;
 }
 
-void drawCCBlock(int y, float pct, const char* label, const String& resets) {
+void drawCCBlock(int y, float pct, float time_pct, const char* label, const String& resets) {
     const int BAR_W = 170;
     const int BAR_H = 4;
     const int LEFT  = CX - BAR_W / 2;
@@ -157,12 +159,18 @@ void drawCCBlock(int y, float pct, const char* label, const String& resets) {
 
     // Progress bar
     int barY = y + 13;
+    tft.fillRect(LEFT, barY - 6, BAR_W, 6, TFT_BLACK); // clear tick area above bar
     tft.fillRoundRect(LEFT, barY, BAR_W, BAR_H, BAR_H / 2, COL_BAR_BG);
     if (pct >= 0) {
         float clamped = pct > 100.0f ? 100.0f : pct;
         int fillW = (int)(clamped / 100.0f * BAR_W);
         if (fillW > 0)
             tft.fillRoundRect(LEFT, barY, fillW, BAR_H, BAR_H / 2, usageColor(clamped));
+    }
+    if (time_pct >= 0 && time_pct <= 100.0f) {
+        int markerX = LEFT + (int)(time_pct / 100.0f * BAR_W);
+        if (markerX >= LEFT && markerX < LEFT + BAR_W)
+            tft.fillTriangle(markerX - 2, barY - 6, markerX + 2, barY - 6, markerX, barY - 3, TFT_WHITE);
     }
 
     // Resets label
@@ -176,8 +184,8 @@ void drawCCBlock(int y, float pct, const char* label, const String& resets) {
 }
 
 void updateCCUsage() {
-    drawCCBlock(92, ccUsage.five_hour_pct, "5-HR",  ccUsage.five_hour_resets);
-    drawCCBlock(144, ccUsage.seven_day_pct, "7-DAY", ccUsage.seven_day_resets);
+    drawCCBlock(92,  ccUsage.five_hour_pct, ccUsage.five_hour_time_pct, "5-HR",  ccUsage.five_hour_resets);
+    drawCCBlock(144, ccUsage.seven_day_pct, ccUsage.seven_day_time_pct, "7-DAY", ccUsage.seven_day_resets);
 
     tft.fillRect(CX - 90, 199, 180, 16, TFT_BLACK);
     if (ccUsage.refreshed_ago.length() > 0) {
@@ -392,20 +400,24 @@ void fetchCCUsage() {
 
     JsonVariant fh = doc["five_hour"];
     if (fh.isNull() || fh["utilization"].isNull()) {
-        ccUsage.five_hour_pct    = -1;
-        ccUsage.five_hour_resets = "";
+        ccUsage.five_hour_pct      = -1;
+        ccUsage.five_hour_time_pct = -1;
+        ccUsage.five_hour_resets   = "";
     } else {
-        ccUsage.five_hour_pct    = fh["utilization"].as<float>();
-        ccUsage.five_hour_resets = fh["resets_at"] | "";
+        ccUsage.five_hour_pct      = fh["utilization"].as<float>();
+        ccUsage.five_hour_time_pct = fh["time_pct"].isNull() ? -1.0f : fh["time_pct"].as<float>();
+        ccUsage.five_hour_resets   = fh["resets_at"] | "";
     }
 
     JsonVariant sd = doc["seven_day"];
     if (sd.isNull() || sd["utilization"].isNull()) {
-        ccUsage.seven_day_pct    = -1;
-        ccUsage.seven_day_resets = "";
+        ccUsage.seven_day_pct      = -1;
+        ccUsage.seven_day_time_pct = -1;
+        ccUsage.seven_day_resets   = "";
     } else {
-        ccUsage.seven_day_pct    = sd["utilization"].as<float>();
-        ccUsage.seven_day_resets = sd["resets_at"] | "";
+        ccUsage.seven_day_pct      = sd["utilization"].as<float>();
+        ccUsage.seven_day_time_pct = sd["time_pct"].isNull() ? -1.0f : sd["time_pct"].as<float>();
+        ccUsage.seven_day_resets   = sd["resets_at"] | "";
     }
 
     ccUsage.refreshed_ago = doc["refreshed_ago"] | "";

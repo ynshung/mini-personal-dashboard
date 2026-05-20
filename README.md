@@ -11,7 +11,7 @@ This is a personal project which is heavily developed using Claude Code. Please 
 ## Features
 
 - **Spotify Player** — now-playing display with playback controls (play/pause, next, previous)
-- **Claude Usage Monitor** — real-time Claude Code plan usage (5-hour session and 7-day windows)
+- **Claude Usage Monitor** — real-time Claude Code plan usage (5-hour session and 7-day windows), with reset timers and expected usage indicators
 - **RevenueCat Dashboard** *(TODO)* — subscription revenue metrics
 
 ## Get Started
@@ -178,11 +178,13 @@ The token is read automatically from the macOS Keychain (`Claude Code-credential
 {
   "five_hour": {
     "utilization": 34.0,
-    "resets_at": "1 hr 10 min"
+    "resets_at": "1 hr 10 min",
+    "time_pct": 80.0
   },
   "seven_day": {
     "utilization": 66.0,
-    "resets_at": "Tue 6:00 PM"
+    "resets_at": "Tue 6:00 PM",
+    "time_pct": 42.3
   },
   "refreshed_ago": "A moment ago"
 }
@@ -192,8 +194,10 @@ The token is read automatically from the macOS Keychain (`Claude Code-credential
 |---|---|---|
 | `five_hour.utilization` | `float \| null` | 5-hour session usage as a percentage (0–100). `null` if not applicable to the plan. |
 | `five_hour.resets_at` | `string \| null` | Time until the 5-hour window resets, e.g. `"1 hr 10 min"`. `null` if not applicable. |
+| `five_hour.time_pct` | `float \| null` | Percentage of the 5-hour window elapsed (0–100), e.g. `80.0` means 1 hr remaining. `null` if not applicable. |
 | `seven_day.utilization` | `float \| null` | 7-day weekly usage as a percentage (0–100). `null` if not applicable to the plan. |
 | `seven_day.resets_at` | `string \| null` | Time until the weekly window resets. Under 24 h: `"X hr Y min"`. Over 24 h: day and local time e.g. `"Tue 6:00 PM"`. `null` if not applicable. |
+| `seven_day.time_pct` | `float \| null` | Percentage of the 7-day window elapsed (0–100). `null` if not applicable. |
 | `refreshed_ago` | `string` | How long ago the upstream data was fetched: `"Just now"` (<30 s), `"A moment ago"` (<60 s), `"A minute ago"` (<2 min), `"2 minutes ago"` (<3 min), `">3 minutes ago"`. |
 
 **Error responses**

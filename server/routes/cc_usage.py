@@ -64,6 +64,17 @@ def _get_token() -> str:
         raise HTTPException(status_code=401, detail="Claude Code credentials malformed")
 
 
+def _compute_time_pct(resets_at: str | None, window_seconds: int) -> float | None:
+    if resets_at is None:
+        return None
+    dt = datetime.fromisoformat(resets_at.replace("Z", "+00:00"))
+    remaining = (dt - datetime.now(timezone.utc)).total_seconds()
+    remaining = max(0.0, remaining)
+    elapsed = window_seconds - remaining
+    elapsed = max(0.0, elapsed)
+    return round(min(100.0, elapsed / window_seconds * 100), 1)
+
+
 def _format_resets_at(resets_at: str | None) -> str | None:
     if resets_at is None:
         return None
@@ -91,6 +102,8 @@ async def cc_usage():
         data, ts = cached
         if data.get("error"):
             raise HTTPException(status_code=data["status"], detail=data["detail"])
+        data["five_hour"]["time_pct"] = _compute_time_pct(data["five_hour"]["resets_at"], 5 * 3600)
+        data["seven_day"]["time_pct"] = _compute_time_pct(data["seven_day"]["resets_at"], 7 * 24 * 3600)
         data["five_hour"]["resets_at"] = _format_resets_at(data["five_hour"]["resets_at"])
         data["seven_day"]["resets_at"] = _format_resets_at(data["seven_day"]["resets_at"])
         data["refreshed_ago"] = _format_refreshed_ago(time.time() - ts)
@@ -129,6 +142,8 @@ async def cc_usage():
         },
     }
     _save_cache(result)
+    result["five_hour"]["time_pct"] = _compute_time_pct(result["five_hour"]["resets_at"], 5 * 3600)
+    result["seven_day"]["time_pct"] = _compute_time_pct(result["seven_day"]["resets_at"], 7 * 24 * 3600)
     result["five_hour"]["resets_at"] = _format_resets_at(result["five_hour"]["resets_at"])
     result["seven_day"]["resets_at"] = _format_resets_at(result["seven_day"]["resets_at"])
     result["refreshed_ago"] = "Just now"
