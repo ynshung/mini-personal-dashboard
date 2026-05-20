@@ -2,7 +2,7 @@
 
 ![Spotify screen](docs/assets/spotify.jpeg)![CC Usage screen](docs/assets/cc.jpeg)
 
-A personal dashboard running on an ESP32 with a 240×240 round GC9A01 display. Shows Spotify now-playing with album art and playback controls, and Claude Code plan usage. Consists of a local FastAPI server (macOS) and ESP32 firmware that polls it over Wi-Fi.
+A personal dashboard running on an ESP32 with a 240×240 round GC9A01 display. Shows Spotify now-playing with album art and playback controls, Claude Code plan usage, and RTSP camera feeds. Consists of a local FastAPI server (macOS) and ESP32 firmware that polls it over Wi-Fi.
 
 ## Disclaimer
 
@@ -12,6 +12,7 @@ This is a personal project which is heavily developed using Claude Code. Please 
 
 - **Spotify Player** — now-playing display with playback controls (play/pause, next, previous)
 - **Claude Usage Monitor** — real-time Claude Code plan usage (5-hour session and 7-day windows), with reset timers and expected usage indicators
+- **RTSP Camera Viewer** — live camera feed display with multi-stream support; server proxies H.264 RTSP streams as JPEG snapshots
 - **RevenueCat Dashboard** *(TODO)* — subscription revenue metrics
 
 ## Get Started
@@ -46,13 +47,43 @@ uv run uvicorn main:app --host 0.0.0.0 --port 7333
 
 Requires Python 3.12+ and [uv](https://github.com/astral-sh/uv).
 
-### 3. Authorize Spotify
+### 3. Configure RTSP streams (optional)
+
+Copy the example config and fill in your camera URLs:
+
+```bash
+cp server/rtsp_config.json.example server/rtsp_config.json
+```
+
+Edit `server/rtsp_config.json`:
+
+```json
+{
+  "idle_timeout_s": 30,
+  "streams": [
+    {
+      "url": "rtsp://user:pass@192.168.1.100:554/stream1",
+      "label": "Front Door",
+      "mode": "fill",
+      "grab_interval_s": 1.0
+    }
+  ]
+}
+```
+
+- `mode`: `"fill"` = center-crop to circle; `"fit"` = letterbox
+- `grab_interval_s`: server-side frame capture rate in seconds
+- `idle_timeout_s`: seconds before the server stops a stream with no active polling (recommended: 30+)
+
+This file is gitignored (may contain credentials in URLs).
+
+### 4. Authorize Spotify
 
 1. In your Spotify app settings, add `http://127.0.0.1:7333/v1/spotify/callback` as a Redirect URI
 2. Visit `http://127.0.0.1:7333/v1/spotify/auth` in your browser and approve access
 3. Tokens are saved to `server/.spotify_tokens.json` and refresh automatically
 
-### 4. Flash the firmware
+### 5. Flash the firmware
 
 ```bash
 pio run --target upload
@@ -92,17 +123,16 @@ Board: ESP32 (`esp32dev`), framework: Arduino. Source in `src/main.cpp`.
 
 | GPIO | Gesture | Action |
 |---|---|---|
-| 19 | Single click | Toggle play/pause |
-| 19 | Double click | Next track |
-| 19 | Long press | Previous track |
-| 21 | Single click | Toggle between Spotify and CC usage screen |
+| 19 | Single click | Toggle play/pause (Spotify) / Next stream (RTSP) |
+| 19 | Double click | Next track (Spotify) / Previous stream (RTSP) |
+| 19 | Long press | Previous track (Spotify) / No-op (RTSP) |
+| 21 | Single click | Cycle screens forward: Spotify → RTSP → CC Usage → … |
+| 21 | Double click | Cycle screens backward: Spotify → CC Usage → RTSP → … |
 | 21 | Long press | Restart device |
-
-GPIO 19 Spotify controls work on both screens.
 
 ### Display UI
 
-The display has two screens toggled by GPIO 21.
+The display has three screens cycled by GPIO 21.
 
 **Spotify screen** — polls `/v1/spotify/now-playing` every 5 seconds:
 
@@ -110,6 +140,13 @@ The display has two screens toggled by GPIO 21.
 - **Track name** and **artist** — rendered server-side with Pillow (Inter font) in a gradient overlay at the bottom of the album art
 - **Progress bar** — 160×3 px at y=210, white fill when playing; interpolated locally every 250 ms between polls
 - **End-of-song detection** — immediately polls when estimated progress reaches song duration
+
+**RTSP Camera screen** — polls `/v1/rtsp/frame?index=N` every 1 second:
+
+- **Live camera frame** — server decodes H.264 RTSP stream, resizes to 240×240 with circular mask, returns as JPEG
+- **Stream label** — shown at the bottom (from config)
+- **Multi-stream navigation** — single/double click GPIO 19 to cycle next/previous stream
+- Configure streams in `server/rtsp_config.json` (copy from `server/rtsp_config.json.example`)
 
 **CC Usage screen** (default) — polls `/v1/cc-usage` every 10 seconds:
 
@@ -165,6 +202,36 @@ DEVELOPMENT_MODE=false
 ---
 
 ## Endpoints
+
+### `GET /v1/rtsp/frame?index=N`
+
+Returns the latest JPEG frame from the RTSP stream at position `N` in `rtsp_config.json`. Lazily starts a background grabber thread on first request; shuts it down after `idle_timeout_s` seconds of no polling.
+
+**Query parameters**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `index` | `int` (default `0`) | Zero-based stream index |
+
+**Response:** `image/jpeg` — 240×240 px with circular mask applied
+
+**Response headers**
+
+| Header | Description |
+|---|---|
+| `X-Stream-Label` | Label string from config |
+| `X-Stream-Count` | Total number of configured streams |
+
+Returns a black circular placeholder JPEG while the grabber is starting up (before the first frame is available).
+
+**Error responses**
+
+| Status | Cause |
+|---|---|
+| `400` | `index` out of range |
+| `503` | No streams configured (missing or empty `rtsp_config.json`) |
+
+---
 
 ### `GET /v1/cc-usage`
 

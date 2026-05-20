@@ -1,0 +1,17 @@
+{
+  "idle_timeout_s": 10,
+  "streams": [
+    {
+      "url": "rtsp://user:pass@192.168.1.100:554/stream1",
+      "label": "Front Door",
+      "mode": "fill",
+      "grab_interval_s": 1.0
+    },
+    {
+      "url": "rtsp://user:pass@192.168.1.101:554/stream1",
+      "label": "Backyard",
+      "mode": "fit",
+      "grab_interval_s": 1.0
+    }
+  ]
+}

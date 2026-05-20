@@ -67,20 +67,30 @@ Hardware: GC9A01 240×240 round TFT, driven via SPI.
 - Base image (art + gradient + mask) cached in `server/.album_art_cache/` keyed by Spotify album ID; text composited per-request on top of cached base
 
 **Button controls (`src/main.cpp`):**
-- GPIO 19, active-high, no internal pull-up (OneButton library) — Spotify controls, always active
-  - Single click → toggle play/pause (`/v1/spotify/toggle`)
-  - Double click → next track (`/v1/spotify/next`)
-  - Long press → previous track (`/v1/spotify/previous`)
-- GPIO 21, active-high, no internal pull-up — single click toggles between Spotify and CC usage screen; long press restarts the device (`ESP.restart()`)
+- GPIO 19, active-high, no internal pull-up (OneButton library)
+  - Spotify screen: single click → toggle play/pause, double click → next track, long press → previous track
+  - RTSP screen: single click → next stream (`rtspIndex++`), double click → previous stream, long press → no-op
+- GPIO 21, active-high, no internal pull-up
+  - Single click → cycle forward: `SPOTIFY → RTSP → CC_USAGE → SPOTIFY` (via `activateScreen()`)
+  - Double click → cycle backward: `SPOTIFY → CC_USAGE → RTSP → SPOTIFY`
+  - Long press → `ESP.restart()`
 
 **Screens (`src/main.cpp`):**
 - `SPOTIFY`: polls `/v1/spotify/now-playing` every 5 s, renders album art, progress bar
 - `CC_USAGE` (default): polls `/v1/cc-usage` every 10 s; renders Claude logo (`include/claude_logo.h`, RGB565 bitmap stored byte-swapped for TFT_eSPI), 5-HR and 7-DAY utilization blocks, and a "last refreshed" label at the bottom; color thresholds 0–60% white, 61–99% orange, 100% red; `-1` sentinel means null (plan doesn't have that window); server caches upstream response for 2 min and includes `refreshed_ago` string in every response; each usage bar has a small white downward triangle above it marking `time_pct` (percentage of the billing window elapsed, computed server-side from `resets_at`)
-- `IDLE`: entered automatically after `IDLE_TIMEOUT_MS` (10 min, configurable constant) of consecutive server unreachability across either screen; shows "zzz / Press any button to wake", stops all polling; any button press restores the previous screen and resumes normal polling
-- On screen switch: renders stale data immediately, then fetches + re-renders; screens poll independently
+- `RTSP`: polls `/v1/rtsp/frame?index=rtspIndex` every 1 s (`RTSP_POLL_INTERVAL_MS`); renders JPEG frame via TJpgDec; stream label shown at bottom (from `X-Stream-Label` header); `rtspStreamCount` tracked from `X-Stream-Count` header; stream index persists across screen switches
+- `IDLE`: entered automatically after `IDLE_TIMEOUT_MS` (10 min, configurable constant) of consecutive server unreachability across any screen; shows "zzz / Press any button to wake", stops all polling; any button press restores the previous screen and resumes normal polling
+- On screen switch: `activateScreen(s)` clears `serverUnreachableSince`, `pollFailed`, runs per-screen init (fetch + draw); screens poll independently
 
 **Polling & rendering:**
 - `/v1/spotify/now-playing` returns lightweight JSON: `track_id`, `is_playing`, `progress_ms`, `duration_ms`
 - `/v1/spotify/now-playing/art/jpeg` returns composited JPEG (7–29 KB) — called only on track change; decoded on-device by TJpg_Decoder
 - API poll every 5 s (`POLL_INTERVAL_MS`); also polls immediately when estimated progress reaches song duration
 - Local tick every 1s (`TICK_INTERVAL_MS`) interpolates progress bar only
+- `/v1/rtsp/frame?index=N` returns 240×240 JPEG with circular mask; polled every 1 s; response headers `X-Stream-Label` and `X-Stream-Count` update local state
+
+**RTSP server pipeline (`server/routes/rtsp.py`):**
+- Config loaded from `server/rtsp_config.json` (gitignored; copy from `.example`): array of streams with `url`, `label`, `mode` (`"fill"` or `"fit"`), `grab_interval_s`, plus top-level `idle_timeout_s`
+- `RtspGrabber` per stream: daemon thread, opens RTSP via PyAV (`av.open`, TCP transport), decodes frames at camera rate, JPEG-encodes every `grab_interval_s`, caches latest frame in memory under a lock
+- Lazy start on first poll; self-terminates after `idle_timeout_s` of no `touch()` calls; restarts automatically on next poll
+- Image processing: `resize_frame(img, mode)` → `apply_circular_mask(img)` → JPEG quality 75; circle radius 110 px

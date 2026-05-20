@@ -12,6 +12,7 @@ wheels/
 .env
 server/.spotify_tokens.json
 server/.cc_usage_cache.json
+server/rtsp_config.json
 
 # Editor & tooling
 .vscode/

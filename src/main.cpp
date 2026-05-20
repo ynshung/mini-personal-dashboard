@@ -27,7 +27,7 @@ const uint16_t COL_RED       = 0xC9E7; // muted red #d03b3b
 const unsigned long CC_POLL_INTERVAL_MS = 10000;
 const unsigned long IDLE_TIMEOUT_MS    = 10UL * 60UL * 1000UL; // 10 minutes
 
-enum Screen { SPOTIFY, CC_USAGE, IDLE };
+enum Screen { SPOTIFY, CC_USAGE, RTSP, IDLE };
 Screen activeScreen = CC_USAGE;
 Screen prevScreen = CC_USAGE;
 unsigned long serverUnreachableSince = 0;
@@ -67,6 +67,11 @@ unsigned long lastTick    = 0;
 unsigned long lastFetchMs = 0;
 bool hasArt = false;
 bool pollFailed = false;
+const unsigned long RTSP_POLL_INTERVAL_MS = 1000;
+int  rtspIndex       = 0;
+int  rtspStreamCount = 1;
+String rtspLabel     = "";
+unsigned long lastRtspPoll = 0;
 
 // --- Display ---
 
@@ -92,6 +97,81 @@ void drawSleepScreen() {
     tft.drawString("zZzZz", CX, 105);
     tft.drawString("Press to wake", CX, 130);
     tft.unloadFont();
+}
+
+void drawRtspLabel() {
+    tft.fillRect(0, 215, 240, 25, TFT_BLACK);
+    if (rtspLabel.length() > 0) {
+        tft.loadFont(NotoSans_Medium14);
+        tft.setTextDatum(BC_DATUM);
+        tft.setTextColor(COL_GREY, TFT_BLACK);
+        tft.drawString(rtspLabel.c_str(), CX, 235);
+        tft.unloadFont();
+    }
+}
+
+void fetchRtspFrame() {
+    HTTPClient http;
+    String url = String(serverUrl) + "/v1/rtsp/frame?index=" + String(rtspIndex);
+    http.begin(url);
+    http.addHeader("X-API-Key", apiKey);
+    const char *headerKeys[] = {"X-Stream-Label", "X-Stream-Count"};
+    http.collectHeaders(headerKeys, 2);
+
+    int code = http.GET();
+    if (code != 200) {
+        Serial.printf("RTSP frame HTTP error: %d\n", code);
+        http.end();
+        if (serverUnreachableSince == 0) serverUnreachableSince = millis();
+        drawStatus("Stream unavailable");
+        return;
+    }
+
+    String label    = http.header("X-Stream-Label");
+    String countStr = http.header("X-Stream-Count");
+    if (label.length() > 0)    rtspLabel = label;
+    if (countStr.length() > 0) rtspStreamCount = countStr.toInt();
+
+    int contentLength = http.getSize();
+    if (contentLength <= 0 || contentLength > 100000) {
+        Serial.printf("RTSP unexpected size: %d\n", contentLength);
+        http.end();
+        return;
+    }
+
+    uint8_t *buf = (uint8_t *)malloc(contentLength);
+    if (!buf) { Serial.println("RTSP malloc failed"); http.end(); return; }
+
+    WiFiClient *stream = http.getStreamPtr();
+    int received = 0;
+    while (received < contentLength && stream->connected()) {
+        int avail = stream->available();
+        if (avail > 0) {
+            int toRead = min(avail, contentLength - received);
+            stream->readBytes(buf + received, toRead);
+            received += toRead;
+        } else {
+            delay(1);
+        }
+    }
+    http.end();
+
+    if (received != contentLength) {
+        Serial.printf("RTSP incomplete: %d/%d bytes\n", received, contentLength);
+        free(buf);
+        return;
+    }
+
+    serverUnreachableSince = 0;
+    tft.startWrite();
+    tft.setSwapBytes(true);
+    TJpgDec.drawJpg(0, 0, buf, contentLength);
+    tft.setSwapBytes(false);
+    tft.endWrite();
+    free(buf);
+
+    drawRtspLabel();
+    Serial.printf("RTSP frame: index=%d label=%s\n", rtspIndex, rtspLabel.c_str());
 }
 
 void drawProgressBar(uint32_t progress_ms, uint32_t duration_ms, bool is_playing) {
@@ -446,23 +526,31 @@ void fetchCCUsage() {
 
 // --- Arduino entry points ---
 
-void wakeFromIdle() {
-    activeScreen = prevScreen;
+void activateScreen(Screen s) {
+    activeScreen = s;
     serverUnreachableSince = 0;
     pollFailed = false;
-    if (activeScreen == CC_USAGE) {
+    if (s == CC_USAGE) {
         ccNeedsFullRedraw = true;
         drawCCUsage();
         fetchCCUsage();
         lastCCPoll = millis();
-    } else {
+    } else if (s == SPOTIFY) {
         hasArt = false;
         current.track_id = "\x01";
         drawStatus("Loading...");
         fetchNowPlaying();
         lastPoll = millis();
         lastTick = lastPoll;
+    } else if (s == RTSP) {
+        drawStatus("Loading...");
+        fetchRtspFrame();
+        lastRtspPoll = millis();
     }
+}
+
+void wakeFromIdle() {
+    activateScreen(prevScreen);
 }
 
 void setup() {
@@ -475,34 +563,46 @@ void setup() {
     drawStatus("Connecting to server...");
     btn.attachClick([]() {
         if (activeScreen == IDLE) { wakeFromIdle(); return; }
+        if (activeScreen == RTSP) {
+            rtspIndex = (rtspIndex + 1) % rtspStreamCount;
+            fetchRtspFrame();
+            lastRtspPoll = millis();
+            return;
+        }
         sendCommand("/v1/spotify/toggle");
     });
     btn.attachDoubleClick([]() {
         if (activeScreen == IDLE) { wakeFromIdle(); return; }
+        if (activeScreen == RTSP) {
+            rtspIndex = (rtspIndex - 1 + rtspStreamCount) % rtspStreamCount;
+            fetchRtspFrame();
+            lastRtspPoll = millis();
+            return;
+        }
         sendCommand("/v1/spotify/next");
     });
     btn.attachLongPressStart([]() {
         if (activeScreen == IDLE) { wakeFromIdle(); return; }
+        if (activeScreen == RTSP) return;
         sendCommand("/v1/spotify/previous");
     });
     btn2.attachClick([]() {
         if (activeScreen == IDLE) { wakeFromIdle(); return; }
-        activeScreen = (activeScreen == SPOTIFY) ? CC_USAGE : SPOTIFY;
-        if (activeScreen == CC_USAGE) {
-            drawCCUsage();
-            fetchCCUsage();
-            lastCCPoll = millis();
-        } else {
-            // Switching back to Spotify: the screen was wiped by CC usage.
-            // Set a sentinel track_id so fetchNowPlaying() always sees a track
-            // change — triggering art re-fetch if playing, or drawIdle() if not.
-            hasArt = false;
-            current.track_id = "\x01";
-            drawStatus("Loading...");
-            fetchNowPlaying();
-            lastPoll = millis();
-            lastTick = lastPoll;
-        }
+        // Forward cycle: SPOTIFY -> RTSP -> CC_USAGE -> SPOTIFY
+        Screen next;
+        if (activeScreen == SPOTIFY)   next = RTSP;
+        else if (activeScreen == RTSP) next = CC_USAGE;
+        else                           next = SPOTIFY;
+        activateScreen(next);
+    });
+    btn2.attachDoubleClick([]() {
+        if (activeScreen == IDLE) { wakeFromIdle(); return; }
+        // Backward cycle: SPOTIFY -> CC_USAGE -> RTSP -> SPOTIFY
+        Screen target;
+        if (activeScreen == SPOTIFY)       target = CC_USAGE;
+        else if (activeScreen == CC_USAGE) target = RTSP;
+        else                               target = SPOTIFY;
+        activateScreen(target);
     });
     btn2.attachLongPressStart([]() {
         ESP.restart();
@@ -556,6 +656,12 @@ void loop() {
             lastCCPoll = now;
             if (WiFi.status() == WL_CONNECTED)
                 fetchCCUsage();
+        }
+    } else if (activeScreen == RTSP) {
+        if (now - lastRtspPoll >= RTSP_POLL_INTERVAL_MS) {
+            lastRtspPoll = now;
+            if (WiFi.status() == WL_CONNECTED)
+                fetchRtspFrame();
         }
     }
 }
