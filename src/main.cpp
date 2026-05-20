@@ -159,7 +159,7 @@ void drawCCBlock(int y, float pct, float time_pct, const char* label, const Stri
 
     // Progress bar
     int barY = y + 13;
-    tft.fillRect(LEFT, barY - 6, BAR_W, 6, TFT_BLACK); // clear tick area above bar
+    tft.fillRect(LEFT - 2, barY - 6, BAR_W + 4, 6, TFT_BLACK); // clear tick area above bar
     tft.fillRoundRect(LEFT, barY, BAR_W, BAR_H, BAR_H / 2, COL_BAR_BG);
     if (pct >= 0) {
         float clamped = pct > 100.0f ? 100.0f : pct;
