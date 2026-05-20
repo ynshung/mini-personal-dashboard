@@ -52,7 +52,11 @@ async def fetch_and_build_base(art_url: str, album_id: str) -> Image.Image:
     resp.raise_for_status()
 
     img = Image.open(BytesIO(resp.content)).convert("RGB")
-    img = img.resize((IMG_SIZE, IMG_SIZE), Image.LANCZOS)
+    ratio = max(IMG_SIZE / img.width, IMG_SIZE / img.height)
+    img = img.resize((int(img.width * ratio), int(img.height * ratio)), Image.LANCZOS)
+    left = (img.width - IMG_SIZE) // 2
+    top = (img.height - IMG_SIZE) // 2
+    img = img.crop((left, top, left + IMG_SIZE, top + IMG_SIZE))
 
     gradient = Image.new("L", (IMG_SIZE, IMG_SIZE), 0)
     for y in range(IMG_SIZE):
