@@ -90,7 +90,7 @@ Hardware: GC9A01 240×240 round TFT, driven via SPI.
 - `/v1/rtsp/frame?index=N` returns 240×240 JPEG with circular mask; polled every 1 s; `X-Stream-Count` response header updates `rtspStreamCount` for button cycling
 
 **RTSP server pipeline (`server/routes/rtsp.py`):**
-- Config loaded from `server/rtsp_config.json` (gitignored; copy from `.example`): array of streams with `url`, `label`, `mode` (`"fill"` or `"fit"`), `grab_interval_s`, plus top-level `idle_timeout_s` and `show_overlay` (bool, default `true`)
+- Config loaded from `server/rtsp_config.json` (gitignored; copy from `.example`): array of streams with `url`, `label`, `mode` (`"fill"` or `"fit"`), `grab_interval_s`; top-level `idle_timeout_s`; optional `overlay` object (`show_label`, `show_dots`, `label_y`, `dots_y`) — omitting `overlay` disables all overlay rendering
 - `RtspGrabber` per stream: daemon thread, opens RTSP via PyAV (`av.open`, TCP transport), decodes frames at camera rate, JPEG-encodes every `grab_interval_s`, caches latest frame in memory under a lock; logs INFO on start and idle stop
 - Lazy start on first poll; self-terminates after `idle_timeout_s` of no `touch()` calls; restarts automatically on next poll
 - Image processing: `resize_frame(img, mode)` → `apply_circular_mask(img)` → optional `composite_overlay(img, index, total, label)` → JPEG quality 75; circle radius 124 px

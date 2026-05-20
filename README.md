@@ -60,7 +60,12 @@ Edit `server/rtsp_config.json`:
 ```json
 {
   "idle_timeout_s": 30,
-  "show_overlay": true,
+  "overlay": {
+    "show_label": true,
+    "show_dots": true,
+    "label_y": 16,
+    "dots_y": 218
+  },
   "streams": [
     {
       "url": "rtsp://user:pass@192.168.1.100:554/stream1",
@@ -75,7 +80,11 @@ Edit `server/rtsp_config.json`:
 - `mode`: `"fill"` = center-crop to circle; `"fit"` = letterbox
 - `grab_interval_s`: server-side frame capture rate in seconds
 - `idle_timeout_s`: seconds before the server stops a stream with no active polling (recommended: 30+)
-- `show_overlay`: when `true` (default), the server composites the stream label and camera dots indicator onto the JPEG before sending; set to `false` to send the raw frame
+- `overlay`: omit this section to disable all overlay rendering; when present:
+  - `show_label`: show the stream label text (default `true`)
+  - `show_dots`: show the camera selection dots indicator (default `true`)
+  - `label_y`: top edge of the label text in pixels (default `16`)
+  - `dots_y`: center y of the dots indicator in pixels (default `218`)
 
 This file is gitignored (may contain credentials in URLs).
 

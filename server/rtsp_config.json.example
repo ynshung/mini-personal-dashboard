@@ -1,5 +1,11 @@
 {
   "idle_timeout_s": 10,
+  "overlay": {
+    "show_label": true,
+    "show_dots": true,
+    "label_y": 16,
+    "dots_y": 218
+  },
   "streams": [
     {
       "url": "rtsp://user:pass@192.168.1.100:554/stream1",

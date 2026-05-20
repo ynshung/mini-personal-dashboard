@@ -29,7 +29,14 @@ def _load_font(size: int) -> ImageFont.FreeTypeFont:
 _OVERLAY_FONT = _load_font(14)
 
 
-def composite_overlay(img: Image.Image, index: int, total: int, label: str) -> Image.Image:
+def composite_overlay(
+    img: Image.Image,
+    index: int,
+    total: int,
+    label: str,
+    label_y: int = 16,
+    dots_y: int = 218,
+) -> Image.Image:
     img = img.copy()
     draw = ImageDraw.Draw(img)
 
@@ -37,16 +44,16 @@ def composite_overlay(img: Image.Image, index: int, total: int, label: str) -> I
         bbox = draw.textbbox((0, 0), label, font=_OVERLAY_FONT)
         text_w = bbox[2] - bbox[0]
         x = CX - text_w // 2
-        draw.text((x, 16), label, fill=COL_OFF_WHITE, font=_OVERLAY_FONT)
+        draw.text((x, label_y), label, fill=COL_OFF_WHITE, font=_OVERLAY_FONT)
 
     if total > 1:
-        dot_r, dot_gap, dot_y = 3, 13, 218
+        dot_r, dot_gap = 3, 13
         n = min(total, 20)
         start_x = CX - ((n - 1) * dot_gap) // 2
         for i in range(n):
             x = start_x + i * dot_gap
             fill = COL_OFF_WHITE if i == index else COL_DIM
-            draw.ellipse((x - dot_r, dot_y - dot_r, x + dot_r, dot_y + dot_r), fill=fill)
+            draw.ellipse((x - dot_r, dots_y - dot_r, x + dot_r, dots_y + dot_r), fill=fill)
 
     return img
 
@@ -160,6 +167,14 @@ CONFIG_PATH = Path(__file__).parent.parent / "rtsp_config.json"
 
 
 @dataclass
+class OverlayConfig:
+    show_label: bool = True
+    show_dots: bool = True
+    label_y: int = 16
+    dots_y: int = 218
+
+
+@dataclass
 class StreamConfig:
     url: str
     label: str
@@ -170,15 +185,26 @@ class StreamConfig:
 @dataclass
 class RtspConfig:
     idle_timeout: float
-    show_overlay: bool
+    overlay: OverlayConfig | None
     streams: list[StreamConfig]
 
 
 def load_config() -> RtspConfig:
     if not CONFIG_PATH.exists():
-        return RtspConfig(idle_timeout=10.0, show_overlay=True, streams=[])
+        return RtspConfig(idle_timeout=10.0, overlay=None, streams=[])
     with CONFIG_PATH.open() as f:
         data = json.load(f)
+    overlay_data = data.get("overlay")
+    overlay = (
+        OverlayConfig(
+            show_label=bool(overlay_data.get("show_label", True)),
+            show_dots=bool(overlay_data.get("show_dots", True)),
+            label_y=int(overlay_data.get("label_y", 16)),
+            dots_y=int(overlay_data.get("dots_y", 218)),
+        )
+        if overlay_data is not None
+        else None
+    )
     streams = [
         StreamConfig(
             url=s["url"],
@@ -190,7 +216,7 @@ def load_config() -> RtspConfig:
     ]
     return RtspConfig(
         idle_timeout=float(data.get("idle_timeout_s", 10.0)),
-        show_overlay=bool(data.get("show_overlay", True)),
+        overlay=overlay,
         streams=streams,
     )
 
@@ -252,9 +278,16 @@ async def get_rtsp_frame(index: int = Query(0, ge=0)):
     if frame is None:
         frame = _make_placeholder()
 
-    if config.show_overlay:
+    if config.overlay is not None:
+        ov = config.overlay
         img = Image.open(BytesIO(frame)).convert("RGB")
-        img = composite_overlay(img, index, len(config.streams), stream_cfg.label)
+        img = composite_overlay(
+            img, index,
+            total=len(config.streams) if ov.show_dots else 1,
+            label=stream_cfg.label if ov.show_label else "",
+            label_y=ov.label_y,
+            dots_y=ov.dots_y,
+        )
         buf = BytesIO()
         img.save(buf, "JPEG", quality=75, optimize=True)
         frame = buf.getvalue()
