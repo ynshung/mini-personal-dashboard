@@ -99,13 +99,30 @@ void drawSleepScreen() {
     tft.unloadFont();
 }
 
+void drawRtspDots() {
+    if (rtspStreamCount <= 1) return;
+    const int DOT_R   = 3;
+    const int DOT_GAP = 13;
+    const int DOT_Y   = 204;
+    int n = min(rtspStreamCount, 20);
+    int startX = CX - ((n - 1) * DOT_GAP) / 2;
+    for (int i = 0; i < n; i++) {
+        int x = startX + i * DOT_GAP;
+        tft.fillCircle(x, DOT_Y, DOT_R, i == rtspIndex ? COL_GREY : COL_BAR_BG);
+    }
+}
+
 void drawRtspLabel() {
-    tft.fillRect(0, 215, 240, 25, TFT_BLACK);
+    static String prevLabel = "";
+    if (rtspLabel != prevLabel) {
+        tft.fillRect(0, 211, 240, 14, TFT_BLACK);
+        prevLabel = rtspLabel;
+    }
     if (rtspLabel.length() > 0) {
         tft.loadFont(NotoSans_Medium14);
         tft.setTextDatum(BC_DATUM);
         tft.setTextColor(COL_GREY, TFT_BLACK);
-        tft.drawString(rtspLabel.c_str(), CX, 235);
+        tft.drawString(rtspLabel.c_str(), CX, 224);
         tft.unloadFont();
     }
 }
@@ -170,6 +187,7 @@ void fetchRtspFrame() {
     tft.endWrite();
     free(buf);
 
+    drawRtspDots();
     drawRtspLabel();
     Serial.printf("RTSP frame: index=%d label=%s\n", rtspIndex, rtspLabel.c_str());
 }

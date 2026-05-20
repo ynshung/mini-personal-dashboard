@@ -11,12 +11,14 @@ from fastapi.responses import Response
 from PIL import Image, ImageDraw
 
 IMG_SIZE = 240
-CIRCLE_RADIUS = 110
+CIRCLE_RADIUS = 124
 
 
 def resize_frame(img: Image.Image, mode: str) -> Image.Image:
     w, h = img.size
-    if mode == "fill":
+    if mode == "stretch":
+        return img.resize((IMG_SIZE, IMG_SIZE), Image.LANCZOS)
+    elif mode == "fill":
         scale = IMG_SIZE / min(w, h)
         new_w, new_h = int(w * scale), int(h * scale)
         img = img.resize((new_w, new_h), Image.LANCZOS)
@@ -70,6 +72,7 @@ class RtspGrabber:
                 return
             self._thread = threading.Thread(target=self._run, daemon=True)
             self._thread.start()
+        logging.info("RTSP stream started: %s", self.url)
 
     def get_frame(self) -> bytes | None:
         with self._lock:
@@ -84,6 +87,7 @@ class RtspGrabber:
         backoff = 1.0
         while True:
             if self._idle():
+                logging.info("RTSP stream stopped (idle): %s", self.url)
                 break
             try:
                 container = av.open(
