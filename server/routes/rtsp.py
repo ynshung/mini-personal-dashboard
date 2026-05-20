@@ -11,10 +11,11 @@ from fastapi.responses import Response
 from PIL import Image, ImageDraw, ImageFont
 
 IMG_SIZE = 240
-CIRCLE_RADIUS = 124
+CIRCLE_RADIUS = 120
 CX = IMG_SIZE // 2
 
 FONTS_DIR = Path(__file__).parent.parent / "fonts"
+COL_OFF_WHITE  = (200, 200, 200)
 COL_GREY   = (82,  85,  82)   # matches COL_GREY RGB565 0x52AA
 COL_DIM    = (58,  57,  58)   # matches COL_BAR_BG RGB565 0x39C7
 
@@ -32,22 +33,20 @@ def composite_overlay(img: Image.Image, index: int, total: int, label: str) -> I
     img = img.copy()
     draw = ImageDraw.Draw(img)
 
+    if label:
+        bbox = draw.textbbox((0, 0), label, font=_OVERLAY_FONT)
+        text_w = bbox[2] - bbox[0]
+        x = CX - text_w // 2
+        draw.text((x, 16), label, fill=COL_OFF_WHITE, font=_OVERLAY_FONT)
+
     if total > 1:
-        dot_r, dot_gap, dot_y = 3, 13, 204
+        dot_r, dot_gap, dot_y = 3, 13, 218
         n = min(total, 20)
         start_x = CX - ((n - 1) * dot_gap) // 2
         for i in range(n):
             x = start_x + i * dot_gap
-            fill = COL_GREY if i == index else COL_DIM
+            fill = COL_OFF_WHITE if i == index else COL_DIM
             draw.ellipse((x - dot_r, dot_y - dot_r, x + dot_r, dot_y + dot_r), fill=fill)
-
-    if label:
-        bbox = draw.textbbox((0, 0), label, font=_OVERLAY_FONT)
-        text_w = bbox[2] - bbox[0]
-        text_h = bbox[3] - bbox[1]
-        x = CX - text_w // 2
-        y = 224 - text_h
-        draw.text((x, y), label, fill=COL_GREY, font=_OVERLAY_FONT)
 
     return img
 
