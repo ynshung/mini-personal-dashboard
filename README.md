@@ -106,7 +106,7 @@ The display has two screens toggled by GPIO 21.
 
 **Spotify screen** — polls `/v1/spotify/now-playing` every 5 seconds:
 
-- **Full-screen album art** — fetched from `/v1/spotify/now-playing/art` as a pre-composited RGB565 image, streamed row-by-row to the display (only on track change)
+- **Full-screen album art** — fetched from `/v1/spotify/now-playing/art/jpeg` as a composited JPEG (7–29 KB), decoded on-device by TJpg_Decoder (only on track change)
 - **Track name** and **artist** — rendered server-side with Pillow (Inter font) in a gradient overlay at the bottom of the album art
 - **Progress bar** — 160×3 px at y=210, white fill when playing; interpolated locally every 250 ms between polls
 - **End-of-song detection** — immediately polls when estimated progress reaches song duration
@@ -274,21 +274,11 @@ Returns lightweight playback state for polling.
 
 ### `GET /v1/spotify/now-playing/art/jpeg`
 
-Returns the current track's album art as a composited JPEG image (same pipeline as `/art`, but encoded as JPEG instead of raw RGB565). Useful for debugging or browser previewing.
+Returns the current track's album art as a composited JPEG image. The server fetches album art from Spotify, resizes to 240×240, applies a gradient overlay and circular mask, renders track/artist text, and encodes to JPEG (quality 75). Base images (art + gradient + mask) are cached by album ID in `server/.album_art_cache/`; text is composited per-request.
 
 Returns `204 No Content` if nothing is playing.
 
-**Response:** `image/jpeg`
-
----
-
-### `GET /v1/spotify/now-playing/art`
-
-Returns the current track's album art as a pre-composited 240×240 RGB565 binary image (115,200 bytes). The server fetches the album art from Spotify, resizes it, applies a gradient overlay and circular mask, renders track/artist text, and converts to RGB565. Base images (art + gradient + mask) are cached by album ID in `server/.album_art_cache/`.
-
-Returns `204 No Content` if nothing is playing.
-
-**Response:** raw `application/octet-stream` — 115,200 bytes of big-endian RGB565 pixel data (240 rows × 240 pixels × 2 bytes).
+**Response:** `image/jpeg` — typically 7–29 KB
 
 **Error responses**
 
@@ -297,3 +287,13 @@ Returns `204 No Content` if nothing is playing.
 | `204` | Nothing playing or no album art available |
 | `401` | Not authorized — visit `/v1/spotify/auth` |
 | `502` | Unexpected response from Spotify API |
+
+---
+
+### `GET /v1/spotify/now-playing/art`
+
+Returns the same composited image as `/art/jpeg` but as a raw 240×240 RGB565 binary (115,200 bytes, big-endian). Legacy endpoint — the ESP32 firmware now uses `/art/jpeg`.
+
+Returns `204 No Content` if nothing is playing.
+
+**Response:** raw `application/octet-stream` — 115,200 bytes

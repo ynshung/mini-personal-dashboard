@@ -78,7 +78,7 @@ async def fetch_and_build_base(art_url: str, album_id: str) -> Image.Image:
     img = Image.composite(img, bg, mask)
 
     CACHE_DIR.mkdir(exist_ok=True)
-    img.save(cache_path, "JPEG", quality=90)
+    img.save(cache_path, "JPEG", quality=75, optimize=True)
     _prune_cache()
 
     return img

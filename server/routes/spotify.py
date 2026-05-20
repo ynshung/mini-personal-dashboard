@@ -224,7 +224,7 @@ async def spotify_now_playing_art_jpeg():
     final = composite_text(base, item.get("name", ""), artists)
 
     buf = BytesIO()
-    final.save(buf, format="JPEG", quality=90)
+    final.save(buf, format="JPEG", quality=75, optimize=True)
 
     return Response(content=buf.getvalue(), media_type="image/jpeg")
 

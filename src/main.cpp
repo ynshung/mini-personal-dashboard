@@ -3,6 +3,7 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <TFT_eSPI.h>
+#include <TJpg_Decoder.h>
 #include <OneButtonTiny.h>
 #include "NotoSans_Medium14.h"
 #include "claude_logo.h"
@@ -231,9 +232,14 @@ void initWiFi() {
 
 // --- Album art streaming ---
 
+bool tft_output(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap) {
+    tft.pushImage(x, y, w, h, bitmap);
+    return true;
+}
+
 bool fetchAlbumArt() {
     HTTPClient http;
-    http.begin(String(serverUrl) + "/v1/spotify/now-playing/art");
+    http.begin(String(serverUrl) + "/v1/spotify/now-playing/art/jpeg");
     http.addHeader("X-API-Key", apiKey);
 
     int code = http.GET();
@@ -248,39 +254,49 @@ bool fetchAlbumArt() {
     }
 
     int contentLength = http.getSize();
-    if (contentLength != 240 * 240 * 2) {
+    if (contentLength <= 0 || contentLength > 100000) {
         Serial.printf("Art unexpected size: %d\n", contentLength);
         http.end();
         return false;
     }
 
-    WiFiClient *stream = http.getStreamPtr();
-    uint16_t rowBuf[240];
-    int y = 0;
-
-    tft.startWrite();
-    while (y < 240 && stream->connected()) {
-        size_t avail = stream->available();
-        if (avail < 480) {
-            delay(1);
-            continue;
-        }
-        stream->readBytes((uint8_t *)rowBuf, 480);
-        tft.pushImage(0, y, 240, 1, rowBuf);
-        y++;
+    uint8_t *buf = (uint8_t *)malloc(contentLength);
+    if (!buf) {
+        Serial.println("Art malloc failed");
+        http.end();
+        return false;
     }
-    tft.endWrite();
 
+    WiFiClient *stream = http.getStreamPtr();
+    int received = 0;
+    while (received < contentLength && stream->connected()) {
+        int avail = stream->available();
+        if (avail > 0) {
+            int toRead = min(avail, contentLength - received);
+            stream->readBytes(buf + received, toRead);
+            received += toRead;
+        } else {
+            delay(1);
+        }
+    }
     http.end();
 
-    if (y == 240) {
-        Serial.println("Album art loaded");
-        hasArt = true;
-        return true;
+    if (received != contentLength) {
+        Serial.printf("Art incomplete: %d/%d bytes\n", received, contentLength);
+        free(buf);
+        return false;
     }
 
-    Serial.printf("Art incomplete: %d/240 rows\n", y);
-    return false;
+    tft.startWrite();
+    tft.setSwapBytes(true);
+    TJpgDec.drawJpg(0, 0, buf, contentLength);
+    tft.setSwapBytes(false);
+    tft.endWrite();
+
+    free(buf);
+    Serial.println("Album art loaded");
+    hasArt = true;
+    return true;
 }
 
 // --- Networking ---
@@ -453,6 +469,8 @@ void setup() {
     Serial.begin(115200);
     tft.init();
     tft.setRotation(0);
+    TJpgDec.setJpgScale(1);
+    TJpgDec.setCallback(tft_output);
     initWiFi();
     drawStatus("Connecting to server...");
     btn.attachClick([]() {

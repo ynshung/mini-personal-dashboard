@@ -39,7 +39,7 @@ Source lives in `src/main.cpp`. Libraries go in `lib/`, shared headers in `inclu
 
 **Environment variables:** `load_env.py` is a PlatformIO pre-script that reads `.env` from the project root and injects each key-value pair as a C preprocessor macro (`-D KEY=VALUE`), making server config (e.g. Wi-Fi credentials, API keys) available at compile time.
 
-**Libraries:** `TFT_eSPI` (display driver) and `ArduinoJson` (JSON parsing). TFT_eSPI is configured entirely via `build_flags` in `platformio.ini` — do not edit `User_Setup.h` inside the library.
+**Libraries:** `TFT_eSPI` (display driver), `TJpg_Decoder` (JPEG decoder), and `ArduinoJson` (JSON parsing). TFT_eSPI is configured entirely via `build_flags` in `platformio.ini` — do not edit `User_Setup.h` inside the library.
 
 **IDE diagnostics:** The VS Code clang analyzer will show false errors (`Arduino.h not found`, undeclared identifiers) because it doesn't know about the PlatformIO toolchain. These are harmless — use `pio run` to verify real build status.
 
@@ -58,12 +58,12 @@ Hardware: GC9A01 240×240 round TFT, driven via SPI.
 | RST    | 4         |
 
 **Display layout (`src/main.cpp`):**
-- Album art: full-screen 240×240 image streamed from server as RGB565 binary, clipped to circle by server-side mask
+- Album art: full-screen 240×240 JPEG fetched from server, decoded on-device by TJpg_Decoder; clipped to circle by server-side mask
 - Track name + artist: rendered server-side with Pillow (Inter font) in a gradient overlay region at the bottom
 - Progress bar: 160×3 px at (40, 210), white fill when playing, dim when paused — drawn locally by ESP32
 
 **Album art pipeline (`server/routes/album_art.py`):**
-- Fetches album art JPEG from Spotify, resizes to 240×240, applies gradient overlay (rows 132–240), circular mask (radius 110), composites track/artist text, converts to RGB565
+- Fetches album art JPEG from Spotify, resizes to 240×240, applies gradient overlay (rows 132–240), circular mask (radius 110), composites track/artist text, encodes to JPEG (quality 75, optimized)
 - Base image (art + gradient + mask) cached in `server/.album_art_cache/` keyed by Spotify album ID; text composited per-request on top of cached base
 
 **Button controls (`src/main.cpp`):**
@@ -81,6 +81,6 @@ Hardware: GC9A01 240×240 round TFT, driven via SPI.
 
 **Polling & rendering:**
 - `/v1/spotify/now-playing` returns lightweight JSON: `track_id`, `is_playing`, `progress_ms`, `duration_ms`
-- `/v1/spotify/now-playing/art` returns raw RGB565 binary (115,200 bytes) — called only on track change
+- `/v1/spotify/now-playing/art/jpeg` returns composited JPEG (7–29 KB) — called only on track change; decoded on-device by TJpg_Decoder
 - API poll every 5 s (`POLL_INTERVAL_MS`); also polls immediately when estimated progress reaches song duration
 - Local tick every 1s (`TICK_INTERVAL_MS`) interpolates progress bar only
