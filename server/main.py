@@ -1,3 +1,4 @@
+import logging
 import os
 
 from dotenv import load_dotenv
@@ -9,6 +10,7 @@ from routes.rtsp import router as rtsp_router
 from routes.spotify import router as spotify_router
 
 load_dotenv()
+logging.basicConfig(level=logging.INFO, format="%(levelname)-9s %(name)s - %(message)s")
 
 app = FastAPI()
 
