@@ -67,10 +67,18 @@ unsigned long lastTick    = 0;
 unsigned long lastFetchMs = 0;
 bool hasArt = false;
 bool pollFailed = false;
-const unsigned long RTSP_POLL_INTERVAL_MS = 1000;
-int  rtspIndex       = 0;
-int  rtspStreamCount = 1;
-unsigned long lastRtspPoll = 0;
+static volatile int rtspIndex       = 0;
+static volatile int rtspStreamCount = 1;
+
+static uint8_t           rtspBuf[2][32768];
+static int               rtspBufLen[2]       = {0, 0};
+static volatile int      rtspWriteIdx        = 0;
+static volatile int      rtspReadIdx         = 0;
+static SemaphoreHandle_t rtspFreeSem         = nullptr;
+static SemaphoreHandle_t rtspReadySem        = nullptr;
+static TaskHandle_t      rtspNetTaskHandle   = nullptr;
+static volatile bool     rtspFetchError      = false;
+static bool              rtspErrorShown      = false;
 
 // --- Display ---
 
@@ -99,65 +107,72 @@ void drawSleepScreen() {
 }
 
 
-void fetchRtspFrame() {
-    HTTPClient http;
-    String url = String(serverUrl) + "/v1/rtsp/frame?index=" + String(rtspIndex);
-    http.begin(url);
-    http.addHeader("X-API-Key", apiKey);
-    const char *headerKeys[] = {"X-Stream-Count"};
-    http.collectHeaders(headerKeys, 1);
+void rtspNetTask(void *) {
+    for (;;) {
+        xSemaphoreTake(rtspFreeSem, portMAX_DELAY);
 
-    int code = http.GET();
-    if (code != 200) {
-        Serial.printf("RTSP frame HTTP error: %d\n", code);
-        http.end();
-        if (serverUnreachableSince == 0) serverUnreachableSince = millis();
-        drawStatus("Stream unavailable");
-        return;
-    }
-
-    String countStr = http.header("X-Stream-Count");
-    if (countStr.length() > 0) rtspStreamCount = countStr.toInt();
-
-    int contentLength = http.getSize();
-    if (contentLength <= 0 || contentLength > 100000) {
-        Serial.printf("RTSP unexpected size: %d\n", contentLength);
-        http.end();
-        return;
-    }
-
-    uint8_t *buf = (uint8_t *)malloc(contentLength);
-    if (!buf) { Serial.println("RTSP malloc failed"); http.end(); return; }
-
-    WiFiClient *stream = http.getStreamPtr();
-    int received = 0;
-    while (received < contentLength && stream->connected()) {
-        int avail = stream->available();
-        if (avail > 0) {
-            int toRead = min(avail, contentLength - received);
-            stream->readBytes(buf + received, toRead);
-            received += toRead;
-        } else {
-            delay(1);
+        if (WiFi.status() != WL_CONNECTED) {
+            xSemaphoreGive(rtspFreeSem);
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            continue;
         }
+
+        HTTPClient http;
+        String url = String(serverUrl) + "/v1/rtsp/frame?index=" + String(rtspIndex);
+        http.begin(url);
+        http.addHeader("X-API-Key", apiKey);
+        const char *headerKeys[] = {"X-Stream-Count"};
+        http.collectHeaders(headerKeys, 1);
+
+        int code = http.GET();
+        if (code != 200) {
+            Serial.printf("RTSP HTTP error: %d\n", code);
+            http.end();
+            if (serverUnreachableSince == 0) serverUnreachableSince = millis();
+            rtspFetchError = true;
+            xSemaphoreGive(rtspFreeSem);
+            vTaskDelay(pdMS_TO_TICKS(500));
+            continue;
+        }
+
+        String countStr = http.header("X-Stream-Count");
+        if (countStr.length() > 0) rtspStreamCount = countStr.toInt();
+
+        int contentLength = http.getSize();
+        if (contentLength <= 0 || contentLength > (int)sizeof(rtspBuf[0])) {
+            Serial.printf("RTSP unexpected size: %d\n", contentLength);
+            http.end();
+            xSemaphoreGive(rtspFreeSem);
+            vTaskDelay(pdMS_TO_TICKS(500));
+            continue;
+        }
+
+        WiFiClient *stream = http.getStreamPtr();
+        int received = 0;
+        while (received < contentLength && stream->connected()) {
+            int avail = stream->available();
+            if (avail > 0) {
+                int toRead = min(avail, contentLength - received);
+                stream->readBytes(rtspBuf[rtspWriteIdx] + received, toRead);
+                received += toRead;
+            } else {
+                vTaskDelay(1);
+            }
+        }
+        http.end();
+
+        if (received != contentLength) {
+            Serial.printf("RTSP incomplete: %d/%d\n", received, contentLength);
+            xSemaphoreGive(rtspFreeSem);
+            continue;
+        }
+
+        rtspBufLen[rtspWriteIdx] = received;
+        serverUnreachableSince = 0;
+        rtspFetchError = false;
+        rtspWriteIdx ^= 1;
+        xSemaphoreGive(rtspReadySem);
     }
-    http.end();
-
-    if (received != contentLength) {
-        Serial.printf("RTSP incomplete: %d/%d bytes\n", received, contentLength);
-        free(buf);
-        return;
-    }
-
-    serverUnreachableSince = 0;
-    tft.startWrite();
-    tft.setSwapBytes(true);
-    TJpgDec.drawJpg(0, 0, buf, contentLength);
-    tft.setSwapBytes(false);
-    tft.endWrite();
-    free(buf);
-
-    Serial.printf("RTSP frame: index=%d\n", rtspIndex);
 }
 
 void drawProgressBar(uint32_t progress_ms, uint32_t duration_ms, bool is_playing) {
@@ -513,6 +528,8 @@ void fetchCCUsage() {
 // --- Arduino entry points ---
 
 void activateScreen(Screen s) {
+    if (activeScreen == RTSP && s != RTSP && rtspNetTaskHandle != nullptr)
+        vTaskSuspend(rtspNetTaskHandle);
     activeScreen = s;
     serverUnreachableSince = 0;
     pollFailed = false;
@@ -529,9 +546,17 @@ void activateScreen(Screen s) {
         lastPoll = millis();
         lastTick = lastPoll;
     } else if (s == RTSP) {
+        // drain any stale semaphore counts, then reset to initial state
+        while (xSemaphoreTake(rtspReadySem, 0) == pdTRUE) {}
+        while (xSemaphoreTake(rtspFreeSem, 0) == pdTRUE) {}
+        xSemaphoreGive(rtspFreeSem);
+        xSemaphoreGive(rtspFreeSem);
+        rtspWriteIdx   = 0;
+        rtspReadIdx    = 0;
+        rtspFetchError = false;
+        rtspErrorShown = false;
         drawStatus("Loading...");
-        fetchRtspFrame();
-        lastRtspPoll = millis();
+        vTaskResume(rtspNetTaskHandle);
     }
 }
 
@@ -547,12 +572,14 @@ void setup() {
     TJpgDec.setCallback(tft_output);
     initWiFi();
     drawStatus("Connecting to server...");
+    rtspFreeSem  = xSemaphoreCreateCounting(2, 2);
+    rtspReadySem = xSemaphoreCreateCounting(2, 0);
+    xTaskCreatePinnedToCore(rtspNetTask, "rtspNet", 8192, nullptr, 1, &rtspNetTaskHandle, 0);
+    vTaskSuspend(rtspNetTaskHandle);
     btn.attachClick([]() {
         if (activeScreen == IDLE) { wakeFromIdle(); return; }
         if (activeScreen == RTSP) {
             rtspIndex = (rtspIndex + 1) % rtspStreamCount;
-            fetchRtspFrame();
-            lastRtspPoll = millis();
             return;
         }
         sendCommand("/v1/spotify/toggle");
@@ -561,8 +588,6 @@ void setup() {
         if (activeScreen == IDLE) { wakeFromIdle(); return; }
         if (activeScreen == RTSP) {
             rtspIndex = (rtspIndex - 1 + rtspStreamCount) % rtspStreamCount;
-            fetchRtspFrame();
-            lastRtspPoll = millis();
             return;
         }
         sendCommand("/v1/spotify/next");
@@ -644,10 +669,19 @@ void loop() {
                 fetchCCUsage();
         }
     } else if (activeScreen == RTSP) {
-        if (now - lastRtspPoll >= RTSP_POLL_INTERVAL_MS) {
-            lastRtspPoll = now;
-            if (WiFi.status() == WL_CONNECTED)
-                fetchRtspFrame();
+        if (xSemaphoreTake(rtspReadySem, 0) == pdTRUE) {
+            int idx = rtspReadIdx;
+            tft.startWrite();
+            tft.setSwapBytes(true);
+            TJpgDec.drawJpg(0, 0, rtspBuf[idx], rtspBufLen[idx]);
+            tft.setSwapBytes(false);
+            tft.endWrite();
+            rtspReadIdx ^= 1;
+            xSemaphoreGive(rtspFreeSem);
+            rtspErrorShown = false;
+        } else if (rtspFetchError && !rtspErrorShown) {
+            drawStatus("Stream unavailable");
+            rtspErrorShown = true;
         }
     }
 }

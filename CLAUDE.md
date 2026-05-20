@@ -78,7 +78,7 @@ Hardware: GC9A01 240×240 round TFT, driven via SPI.
 **Screens (`src/main.cpp`):**
 - `SPOTIFY`: polls `/v1/spotify/now-playing` every 5 s, renders album art, progress bar
 - `CC_USAGE` (default): polls `/v1/cc-usage` every 10 s; renders Claude logo (`include/claude_logo.h`, RGB565 bitmap stored byte-swapped for TFT_eSPI), 5-HR and 7-DAY utilization blocks, and a "last refreshed" label at the bottom; color thresholds 0–60% white, 61–99% orange, 100% red; `-1` sentinel means null (plan doesn't have that window); server caches upstream response for 2 min and includes `refreshed_ago` string in every response; each usage bar has a small white downward triangle above it marking `time_pct` (percentage of the billing window elapsed, computed server-side from `resets_at`)
-- `RTSP`: polls `/v1/rtsp/frame?index=rtspIndex` every 1 s (`RTSP_POLL_INTERVAL_MS`); renders JPEG frame via TJpgDec; overlay (label + dots) composited server-side into the JPEG; `rtspStreamCount` tracked from `X-Stream-Count` header; stream index persists across screen switches
+- `RTSP`: dual-core pipeline — `rtspNetTask` (Core 0) fetches `/v1/rtsp/frame?index=rtspIndex` continuously using ping-pong double buffers (`rtspBuf[2][32768]`) and `rtspFreeSem`/`rtspReadySem` counting semaphores; `loop()` (Core 1) renders each frame via TJpgDec as soon as it arrives; overlay (label + dots) composited server-side into the JPEG; `rtspStreamCount` tracked from `X-Stream-Count` header; stream index persists across screen switches; task suspended when not on RTSP screen
 - `IDLE`: entered automatically after `IDLE_TIMEOUT_MS` (10 min, configurable constant) of consecutive server unreachability across any screen; shows "zzz / Press any button to wake", stops all polling; any button press restores the previous screen and resumes normal polling
 - On screen switch: `activateScreen(s)` clears `serverUnreachableSince`, `pollFailed`, runs per-screen init (fetch + draw); screens poll independently
 
@@ -87,11 +87,11 @@ Hardware: GC9A01 240×240 round TFT, driven via SPI.
 - `/v1/spotify/now-playing/art/jpeg` returns composited JPEG (7–29 KB) — called only on track change; decoded on-device by TJpg_Decoder
 - API poll every 5 s (`POLL_INTERVAL_MS`); also polls immediately when estimated progress reaches song duration
 - Local tick every 1s (`TICK_INTERVAL_MS`) interpolates progress bar only
-- `/v1/rtsp/frame?index=N` returns 240×240 JPEG with circular mask; polled every 1 s; `X-Stream-Count` response header updates `rtspStreamCount` for button cycling
+- `/v1/rtsp/frame?index=N` returns 240×240 JPEG with circular mask; fetched continuously by Core 0 (`rtspNetTask`); `X-Stream-Count` response header updates `rtspStreamCount` for button cycling
 
 **RTSP server pipeline (`server/routes/rtsp.py`):**
 - Config loaded from `server/rtsp_config.json` (gitignored; copy from `.example`): array of streams with `url`, `label`, `mode` (`"fill"` or `"fit"`), `grab_interval_s`; top-level `idle_timeout_s`; optional `overlay` object (`show_label`, `show_dots`, `label_y`, `dots_y`) — omitting `overlay` disables all overlay rendering
-- `RtspGrabber` per stream: daemon thread, opens RTSP via PyAV (`av.open`, TCP transport), decodes frames at camera rate, JPEG-encodes every `grab_interval_s`, caches latest frame in memory under a lock; logs INFO on start and idle stop
+- `RtspGrabber` per stream: daemon thread, opens RTSP via PyAV (`av.open`, TCP transport), decodes frames at camera rate, JPEG-encodes every `grab_interval_s` (0 = every frame); caches latest frame in memory under a lock; logs INFO on start and idle stop
 - Lazy start on first poll; self-terminates after `idle_timeout_s` of no `touch()` calls; restarts automatically on next poll
 - Image processing: `resize_frame(img, mode)` → `apply_circular_mask(img)` → optional `composite_overlay(img, index, total, label)` → JPEG quality 75; circle radius 124 px
 - `composite_overlay`: draws camera-select dots (y=204, r=3, gap=13) and label text (bottom at y=224) using NotoSansCJK-Medium 14 pt; only runs when `show_overlay` is true

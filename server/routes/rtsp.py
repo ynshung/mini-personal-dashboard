@@ -146,7 +146,7 @@ class RtspGrabber:
                         if self._idle():
                             break
                         now = time.monotonic()
-                        if now - last_encode >= self.grab_interval:
+                        if self.grab_interval == 0.0 or now - last_encode >= self.grab_interval:
                             img = frame.to_image().convert("RGB")
                             img = resize_frame(img, self.mode)
                             img = apply_circular_mask(img)
@@ -210,7 +210,7 @@ def load_config() -> RtspConfig:
             url=s["url"],
             label=s.get("label", f"Stream {i}"),
             mode=s.get("mode", "fill"),
-            grab_interval=max(float(s.get("grab_interval_s", 1.0)), 0.1),
+            grab_interval=float(s.get("grab_interval_s", 0.0)),
         )
         for i, s in enumerate(data.get("streams", []))
     ]

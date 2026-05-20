@@ -71,14 +71,14 @@ Edit `server/rtsp_config.json`:
       "url": "rtsp://user:pass@192.168.1.100:554/stream1",
       "label": "Front Door",
       "mode": "fill",
-      "grab_interval_s": 1.0
+      "grab_interval_s": 0.1
     }
   ]
 }
 ```
 
 - `mode`: `"fill"` = center-crop to circle; `"fit"` = letterbox
-- `grab_interval_s`: server-side frame capture rate in seconds
+- `grab_interval_s`: server-side frame encode rate in seconds (`0` = encode every decoded camera frame, `0.1` = 10fps cap)
 - `idle_timeout_s`: seconds before the server stops a stream with no active polling (recommended: 30+)
 - `overlay`: omit this section to disable all overlay rendering; when present:
   - `show_label`: show the stream label text (default `true`)
@@ -152,10 +152,10 @@ The display has three screens cycled by GPIO 21.
 - **Progress bar** — 160×3 px at y=210, white fill when playing; interpolated locally every 250 ms between polls
 - **End-of-song detection** — immediately polls when estimated progress reaches song duration
 
-**RTSP Camera screen** — polls `/v1/rtsp/frame?index=N` every 1 second:
+**RTSP Camera screen** — renders frames as fast as they arrive (dual-core: Core 0 fetches, Core 1 renders):
 
-- **Live camera frame** — server decodes H.264 RTSP stream, resizes to 240×240 with circular mask, returns as JPEG
-- **Stream label and dots indicator** — composited server-side onto the JPEG (controlled by `show_overlay` in config); label shown near the bottom, dots above it indicate selected stream out of total
+- **Live camera frame** — server decodes H.264 RTSP stream, resizes to 240×240 with circular mask, returns as JPEG; ESP32 decodes and blits each frame immediately
+- **Stream label and dots indicator** — composited server-side onto the JPEG (controlled by `overlay` in config); label shown near top, dots near bottom indicate selected stream out of total
 - **Multi-stream navigation** — single/double click GPIO 19 to cycle next/previous stream
 - Configure streams in `server/rtsp_config.json` (copy from `server/rtsp_config.json.example`)
 
