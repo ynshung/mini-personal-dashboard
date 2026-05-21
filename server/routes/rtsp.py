@@ -239,7 +239,7 @@ _config: RtspConfig | None = None
 _config_lock = threading.Lock()
 _grabbers: dict[int, RtspGrabber] = {}
 _grabbers_lock = threading.Lock()
-_placeholder: bytes | None = None
+_placeholders: dict[int, bytes] = {}
 
 
 def _get_config() -> RtspConfig:
@@ -250,9 +250,8 @@ def _get_config() -> RtspConfig:
         return _config
 
 
-def _make_placeholder() -> bytes:
-    global _placeholder
-    if _placeholder is None:
+def _make_placeholder(index: int, total: int, label: str, overlay: "OverlayConfig | None") -> bytes:
+    if index not in _placeholders:
         img = Image.new("RGB", (IMG_SIZE, IMG_SIZE), (0, 0, 0))
         draw = ImageDraw.Draw(img)
         text = "Loading..."
@@ -261,10 +260,18 @@ def _make_placeholder() -> bytes:
         y = CX - (bbox[3] - bbox[1]) // 2
         draw.text((x, y), text, fill=COL_GREY, font=_OVERLAY_FONT)
         img = apply_circular_mask(img)
+        if overlay is not None:
+            img = composite_overlay(
+                img, index,
+                total=total if overlay.show_dots else 1,
+                label=label if overlay.show_label else "",
+                label_y=overlay.label_y,
+                dots_y=overlay.dots_y,
+            )
         buf = BytesIO()
         img.save(buf, "JPEG", quality=75)
-        _placeholder = buf.getvalue()
-    return _placeholder
+        _placeholders[index] = buf.getvalue()
+    return _placeholders[index]
 
 
 router = APIRouter()
@@ -300,7 +307,7 @@ async def get_rtsp_frame(index: int = Query(0, ge=0)):
 
     frame = grabber.get_frame()
     if frame is None:
-        frame = _make_placeholder()
+        frame = _make_placeholder(index, len(config.streams), stream_cfg.label, config.overlay)
 
     return Response(
         content=frame,
