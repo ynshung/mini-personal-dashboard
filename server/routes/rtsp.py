@@ -119,6 +119,7 @@ class RtspGrabber:
         with self._lock:
             if self._thread is not None and self._thread.is_alive():
                 return
+            self._frame = None
             self._thread = threading.Thread(target=self._run, daemon=True)
             self._thread.start()
         logging.info("RTSP stream started: %s", self.url)
