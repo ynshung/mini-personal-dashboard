@@ -135,7 +135,7 @@ Board: ESP32 (`esp32dev`), framework: Arduino. Source in `src/main.cpp`.
 | GPIO | Gesture | Action |
 |---|---|---|
 | 19 | Single click | Toggle play/pause (Spotify) / Next stream (RTSP) |
-| 19 | Double click | Next track (Spotify) / Previous stream (RTSP) |
+| 19 | Double click | Next track (Spotify) / Previous stream (RTSP, but it doesn't work well) |
 | 19 | Long press | Previous track (Spotify) / No-op (RTSP) |
 | 21 | Single click | Cycle screens forward: Spotify → RTSP → CC Usage → … |
 | 21 | Double click | Cycle screens backward: Spotify → CC Usage → RTSP → … |
