@@ -77,7 +77,7 @@ Edit `server/rtsp_config.json`:
 }
 ```
 
-- `mode`: `"fill"` = center-crop to circle; `"fit"` = letterbox
+- `mode`: `"fill"` = center-crop to circle; `"fit"` = letterbox; `"stretch"` = stretch to fill (ignores aspect ratio)
 - `grab_interval_s`: server-side frame encode rate in seconds (`0` = encode every decoded camera frame, `0.1` = 10fps cap)
 - `idle_timeout_s`: seconds before the server stops a stream with no active polling (recommended: 30+)
 - `overlay`: omit this section to disable all overlay rendering; when present:
