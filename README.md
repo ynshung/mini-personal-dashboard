@@ -2,7 +2,7 @@
 
 ![Spotify screen](docs/assets/spotify.jpeg)![CC Usage screen](docs/assets/cc.jpeg)
 
-A personal dashboard running on an ESP32 with a 240×240 round GC9A01 display. Shows Spotify now-playing with album art and playback controls, Claude Code plan usage, and RTSP camera feeds. Consists of a local FastAPI server (macOS) and ESP32 firmware that polls it over Wi-Fi.
+A personal dashboard running on an ESP32 with a 240×240 round GC9A01 display. Shows a live clock, Spotify now-playing with album art and playback controls, Claude Code plan usage, and RTSP camera feeds. Consists of a local FastAPI server (macOS) and ESP32 firmware that polls it over Wi-Fi.
 
 ## Disclaimer
 
@@ -10,6 +10,7 @@ This is a personal project which is heavily developed using Claude Code. Please 
 
 ## Features
 
+- **Clock** — always-on NTP-synced digital clock (weekday, date, time); initial startup screen; falls back to clock when server is unreachable and auto-restores when it comes back
 - **Spotify Player** — now-playing display with playback controls (play/pause, next, previous)
 - **Claude Usage Monitor** — real-time Claude Code plan usage (5-hour session and 7-day windows), with reset timers and expected usage indicators
 - **RTSP Camera Viewer** — live camera feed display with multi-stream support; server proxies H.264 RTSP streams as JPEG snapshots
@@ -134,16 +135,24 @@ Board: ESP32 (`esp32dev`), framework: Arduino. Source in `src/main.cpp`.
 
 | GPIO | Gesture | Action |
 |---|---|---|
-| 19 | Single click | Toggle play/pause (Spotify) / Next stream (RTSP) |
-| 19 | Double click | Next track (Spotify) / Previous stream (RTSP, but it doesn't work well) |
-| 19 | Long press | Previous track (Spotify) / No-op (RTSP) |
-| 21 | Single click | Cycle screens forward: Spotify → RTSP → CC Usage → … |
-| 21 | Double click | Cycle screens backward: Spotify → CC Usage → RTSP → … |
+| 19 | Single click | Toggle play/pause (Spotify) / Next stream (RTSP) / No-op (Clock) |
+| 19 | Double click | Next track (Spotify) / Previous stream (RTSP) / No-op (Clock) |
+| 19 | Long press | Previous track (Spotify) / No-op (RTSP, Clock) |
+| 21 | Single click | Cycle screens forward: Clock → CC Usage → RTSP → Spotify → … |
+| 21 | Double click | Cycle screens backward: Clock → Spotify → RTSP → CC Usage → … |
 | 21 | Long press | Restart device |
 
 ### Display UI
 
-The display has three screens cycled by GPIO 21.
+The display has four screens cycled by GPIO 21.
+
+**Clock screen** (default startup screen) — NTP-synced, updates every second:
+
+- **Weekday** — e.g. "Monday" (grey)
+- **Date** — e.g. "26 May 2026" (grey)
+- **Time** — `HH:MM:SS` (white)
+- **Server fallback** — automatically switches to this screen after 10 minutes of server unreachability; pings `/v1/ping` every 60 seconds and restores the previous screen when the server comes back
+- Timezone configured via `NTP_OFFSET_HOURS` in `src/main.cpp` (default `8.0f` = UTC+8; supports fractional offsets e.g. `-5.5`)
 
 **Spotify screen** — polls `/v1/spotify/now-playing` every 5 seconds:
 
@@ -159,7 +168,7 @@ The display has three screens cycled by GPIO 21.
 - **Multi-stream navigation** — single/double click GPIO 19 to cycle next/previous stream
 - Configure streams in `server/rtsp_config.json` (copy from `server/rtsp_config.json.example`)
 
-**CC Usage screen** (default) — polls `/v1/cc-usage` every 10 seconds:
+**CC Usage screen** — polls `/v1/cc-usage` every 10 seconds:
 
 - **Claude logo** — shown at the top in orange (#d6755a)
 - **5-hour** and **7-day** Claude Code plan utilization, each showing percentage, a color-coded progress bar, and time until reset
@@ -213,6 +222,18 @@ DEVELOPMENT_MODE=false
 ---
 
 ## Endpoints
+
+### `GET /v1/ping`
+
+Health-check endpoint used by the ESP32 clock screen to detect when the server comes back online after an outage.
+
+**Response**
+
+```json
+{"status": "ok"}
+```
+
+---
 
 ### `GET /v1/rtsp/frame?index=N`
 

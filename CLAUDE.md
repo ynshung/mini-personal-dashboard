@@ -70,16 +70,17 @@ Hardware: GC9A01 240×240 round TFT, driven via SPI.
 - GPIO 19, active-high, no internal pull-up (OneButton library)
   - Spotify screen: single click → toggle play/pause, double click → next track, long press → previous track
   - RTSP screen: single click → next stream (`rtspIndex++`), double click → previous stream, long press → no-op
+  - Clock screen: all gestures → no-op
 - GPIO 21, active-high, no internal pull-up
-  - Single click → cycle forward: `SPOTIFY → RTSP → CC_USAGE → SPOTIFY` (via `activateScreen()`)
-  - Double click → cycle backward: `SPOTIFY → CC_USAGE → RTSP → SPOTIFY`
+  - Single click → cycle forward: `CLOCK → CC_USAGE → RTSP → SPOTIFY → CLOCK` (via `activateScreen()`)
+  - Double click → cycle backward: `CLOCK → SPOTIFY → RTSP → CC_USAGE → CLOCK`
   - Long press → `ESP.restart()`
 
 **Screens (`src/main.cpp`):**
-- `SPOTIFY`: polls `/v1/spotify/now-playing` every 5 s, renders album art, progress bar
-- `CC_USAGE` (default): polls `/v1/cc-usage` every 10 s; renders Claude logo (`include/claude_logo.h`, RGB565 bitmap stored byte-swapped for TFT_eSPI), 5-HR and 7-DAY utilization blocks, and a "last refreshed" label at the bottom; color thresholds 0–60% white, 61–99% orange, 100% red; `-1` sentinel means null (plan doesn't have that window); server caches upstream response for 2 min and includes `refreshed_ago` string in every response; each usage bar has a small white downward triangle above it marking `time_pct` (percentage of the billing window elapsed, computed server-side from `resets_at`)
+- `CLOCK` (default/startup): NTP-synced digital clock; renders weekday, date, and `HH:MM:SS` using `NotoSans_Medium14` entirely on-device; ticks every 1 s (`CLOCK_TICK_MS`); date line only redraws at midnight or on activation; timezone set via `NTP_OFFSET_HOURS` float define (default `8.0f` = UTC+8; supports fractional offsets); NTP synced in `initWiFi` via `configTime` (waits up to 10 s for first sync); also acts as server-unreachable fallback — after `IDLE_TIMEOUT_MS` (10 min) of server errors on any screen, sets `clockFromIdle=true` and calls `activateScreen(CLOCK)`; pings `/v1/ping` every `CLOCK_PING_MS` (60 s) and auto-restores `prevScreen` on 200 response
+- `CC_USAGE`: polls `/v1/cc-usage` every 10 s; renders Claude logo (`include/claude_logo.h`, RGB565 bitmap stored byte-swapped for TFT_eSPI), 5-HR and 7-DAY utilization blocks, and a "last refreshed" label at the bottom; color thresholds 0–60% white, 61–99% orange, 100% red; `-1` sentinel means null (plan doesn't have that window); server caches upstream response for 2 min and includes `refreshed_ago` string in every response; each usage bar has a small white downward triangle above it marking `time_pct` (percentage of the billing window elapsed, computed server-side from `resets_at`)
 - `RTSP`: dual-core pipeline — `rtspNetTask` (Core 0) fetches `/v1/rtsp/frame?index=rtspIndex` continuously using ping-pong double buffers (`rtspBuf[2][32768]`) and `rtspFreeSem`/`rtspReadySem` counting semaphores; `loop()` (Core 1) renders each frame via TJpgDec as soon as it arrives; overlay (label + dots) composited server-side into the JPEG; `rtspStreamCount` tracked from `X-Stream-Count` header; stream index persists across screen switches; task suspended when not on RTSP screen
-- `IDLE`: entered automatically after `IDLE_TIMEOUT_MS` (10 min, configurable constant) of consecutive server unreachability across any screen; shows "zzz / Press any button to wake", stops all polling; any button press restores the previous screen and resumes normal polling
+- `SPOTIFY`: polls `/v1/spotify/now-playing` every 5 s, renders album art, progress bar
 - On screen switch: `activateScreen(s)` clears `serverUnreachableSince`, `pollFailed`, runs per-screen init (fetch + draw); screens poll independently
 
 **Polling & rendering:**

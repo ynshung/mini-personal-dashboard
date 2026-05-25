@@ -7,6 +7,7 @@
 #include <OneButtonTiny.h>
 #include "NotoSans_Medium14.h"
 #include "claude_logo.h"
+#include <time.h>
 
 const char *ssid     = WIFI_SSID;
 const char *password = WIFI_PASSWORD;
@@ -18,6 +19,12 @@ TFT_eSPI tft = TFT_eSPI();
 OneButtonTiny btn(19, false, false); // GPIO 19, active-high, no internal pull-up
 OneButtonTiny btn2(21, false, false); // GPIO 21, active-high, no internal pull-up
 
+#define NTP_OFFSET_HOURS  8.0f       // UTC+8; supports fractional e.g. -5.5, 5.75
+#define NTP_SERVER1       "pool.ntp.org"
+#define NTP_SERVER2       "time.google.com"
+const unsigned long CLOCK_TICK_MS  = 1000;
+const unsigned long CLOCK_PING_MS  = 60000UL;
+
 const uint16_t COL_GREY      = 0x52AA;
 const uint16_t COL_BAR_BG    = 0x39C7; // white at 25% opacity on black
 const uint16_t COL_BAR_FILL  = 0xE71C; // white at 90% opacity on black
@@ -27,10 +34,13 @@ const uint16_t COL_RED       = 0xC9E7; // muted red #d03b3b
 const unsigned long CC_POLL_INTERVAL_MS = 10000;
 const unsigned long IDLE_TIMEOUT_MS    = 10UL * 60UL * 1000UL; // 10 minutes
 
-enum Screen { SPOTIFY, CC_USAGE, RTSP, IDLE };
-Screen activeScreen = CC_USAGE;
-Screen prevScreen = CC_USAGE;
+enum Screen { CLOCK, SPOTIFY, CC_USAGE, RTSP };
+Screen activeScreen = CLOCK;
+Screen prevScreen   = CC_USAGE;
 unsigned long serverUnreachableSince = 0;
+bool clockFromIdle = false;
+unsigned long lastClockTick = 0;
+unsigned long lastClockPing = 0;
 
 struct CCUsage {
     float  five_hour_pct      = -1;
@@ -96,13 +106,46 @@ void drawIdle() {
     hasArt = false;
 }
 
-void drawSleepScreen() {
+void drawClockScreen() {
     tft.fillScreen(TFT_BLACK);
+}
+
+void updateClockTime(bool forceDate) {
+    struct tm t;
+    if (!getLocalTime(&t, 100)) {
+        tft.setTextDatum(MC_DATUM);
+        tft.setTextColor(COL_GREY, TFT_BLACK);
+        tft.loadFont(NotoSans_Medium14);
+        tft.drawString("Syncing time...", CX, CX);
+        tft.unloadFont();
+        return;
+    }
+
+    if (forceDate) {
+        const char* weekdays[] = {"Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"};
+        tft.fillRect(0, 65, 240, 20, TFT_BLACK);
+        tft.setTextDatum(MC_DATUM);
+        tft.setTextColor(COL_GREY, TFT_BLACK);
+        tft.loadFont(NotoSans_Medium14);
+        tft.drawString(weekdays[t.tm_wday], CX, 75);
+
+        const char* months[] = {"Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"};
+        char dateBuf[16];
+        snprintf(dateBuf, sizeof(dateBuf), "%d %s %d",
+                 t.tm_mday, months[t.tm_mon], t.tm_year + 1900);
+        tft.fillRect(0, 92, 240, 20, TFT_BLACK);
+        tft.drawString(dateBuf, CX, 102);
+        tft.unloadFont();
+    }
+
+    tft.fillRect(0, 118, 240, 20, TFT_BLACK);
+    char timeBuf[12];
+    snprintf(timeBuf, sizeof(timeBuf), "%02d:%02d:%02d",
+             t.tm_hour, t.tm_min, t.tm_sec);
     tft.setTextDatum(MC_DATUM);
-    tft.setTextColor(COL_GREY, TFT_BLACK);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
     tft.loadFont(NotoSans_Medium14);
-    tft.drawString("zZzZz", CX, 105);
-    tft.drawString("Press to wake", CX, 130);
+    tft.drawString(timeBuf, CX, 128);
     tft.unloadFont();
 }
 
@@ -319,6 +362,15 @@ void initWiFi() {
     Serial.printf("\nConnected! IP: %s\n", WiFi.localIP().toString().c_str());
     Serial.printf("Hostname: %s\n", WiFi.getHostname());
     Serial.printf("RSSI: %d\n", WiFi.RSSI());
+    configTime((long)(NTP_OFFSET_HOURS * 3600), 0, NTP_SERVER1, NTP_SERVER2);
+    Serial.println("NTP sync started");
+    {
+        struct tm tmp;
+        int tries = 0;
+        while (!getLocalTime(&tmp, 1000) && tries++ < 10)
+            Serial.print(".");
+        Serial.println(getLocalTime(&tmp, 0) ? "\nNTP synced" : "\nNTP timeout");
+    }
 }
 
 // --- Album art streaming ---
@@ -543,7 +595,12 @@ void activateScreen(Screen s) {
     activeScreen = s;
     serverUnreachableSince = 0;
     pollFailed = false;
-    if (s == CC_USAGE) {
+    if (s == CLOCK) {
+        lastClockTick = millis();
+        lastClockPing = millis();
+        drawClockScreen();
+        updateClockTime(true);
+    } else if (s == CC_USAGE) {
         ccNeedsFullRedraw = true;
         drawCCUsage();
         fetchCCUsage();
@@ -570,9 +627,6 @@ void activateScreen(Screen s) {
     }
 }
 
-void wakeFromIdle() {
-    activateScreen(prevScreen);
-}
 
 void setup() {
     Serial.begin(115200);
@@ -581,13 +635,13 @@ void setup() {
     TJpgDec.setJpgScale(1);
     TJpgDec.setCallback(tft_output);
     initWiFi();
-    drawStatus("Connecting to server...");
     rtspFreeSem  = xSemaphoreCreateCounting(2, 2);
     rtspReadySem = xSemaphoreCreateCounting(2, 0);
     xTaskCreatePinnedToCore(rtspNetTask, "rtspNet", 8192, nullptr, 1, &rtspNetTaskHandle, 0);
     vTaskSuspend(rtspNetTaskHandle);
+    activateScreen(CLOCK);
     btn.attachClick([]() {
-        if (activeScreen == IDLE) { wakeFromIdle(); return; }
+        if (activeScreen == CLOCK) return;
         if (activeScreen == RTSP) {
             rtspIndex = (rtspIndex + 1) % rtspStreamCount;
             return;
@@ -595,7 +649,7 @@ void setup() {
         sendCommand("/v1/spotify/toggle");
     });
     btn.attachDoubleClick([]() {
-        if (activeScreen == IDLE) { wakeFromIdle(); return; }
+        if (activeScreen == CLOCK) return;
         if (activeScreen == RTSP) {
             rtspIndex = (rtspIndex - 1 + rtspStreamCount) % rtspStreamCount;
             return;
@@ -603,26 +657,28 @@ void setup() {
         sendCommand("/v1/spotify/next");
     });
     btn.attachLongPressStart([]() {
-        if (activeScreen == IDLE) { wakeFromIdle(); return; }
+        if (activeScreen == CLOCK) return;
         if (activeScreen == RTSP) return;
         sendCommand("/v1/spotify/previous");
     });
     btn2.attachClick([]() {
-        if (activeScreen == IDLE) { wakeFromIdle(); return; }
-        // Forward cycle: SPOTIFY -> RTSP -> CC_USAGE -> SPOTIFY
+        // Forward cycle: CLOCK -> CC_USAGE -> RTSP -> SPOTIFY -> CLOCK
         Screen next;
-        if (activeScreen == SPOTIFY)   next = RTSP;
-        else if (activeScreen == RTSP) next = CC_USAGE;
-        else                           next = SPOTIFY;
+        if      (activeScreen == CLOCK)    next = CC_USAGE;
+        else if (activeScreen == CC_USAGE) next = RTSP;
+        else if (activeScreen == RTSP)     next = SPOTIFY;
+        else                               next = CLOCK;
+        clockFromIdle = false;
         activateScreen(next);
     });
     btn2.attachDoubleClick([]() {
-        if (activeScreen == IDLE) { wakeFromIdle(); return; }
-        // Backward cycle: SPOTIFY -> CC_USAGE -> RTSP -> SPOTIFY
+        // Backward cycle: CLOCK -> SPOTIFY -> RTSP -> CC_USAGE -> CLOCK
         Screen target;
-        if (activeScreen == SPOTIFY)       target = CC_USAGE;
-        else if (activeScreen == CC_USAGE) target = RTSP;
-        else                               target = SPOTIFY;
+        if      (activeScreen == CLOCK)    target = SPOTIFY;
+        else if (activeScreen == SPOTIFY)  target = RTSP;
+        else if (activeScreen == RTSP)     target = CC_USAGE;
+        else                               target = CLOCK;
+        clockFromIdle = false;
         activateScreen(target);
     });
     btn2.attachLongPressStart([]() {
@@ -635,11 +691,11 @@ void loop() {
     btn2.tick();
     unsigned long now = millis();
 
-    if (serverUnreachableSince > 0 && activeScreen != IDLE
+    if (serverUnreachableSince > 0 && activeScreen != CLOCK
             && (now - serverUnreachableSince) >= IDLE_TIMEOUT_MS) {
         prevScreen = activeScreen;
-        activeScreen = IDLE;
-        drawSleepScreen();
+        clockFromIdle = true;
+        activateScreen(CLOCK);
     }
 
     if (activeScreen == SPOTIFY) {
@@ -671,6 +727,28 @@ void loop() {
         if (current.is_playing && (now - lastTick >= TICK_INTERVAL_MS)) {
             lastTick = now;
             drawTick();
+        }
+    } else if (activeScreen == CLOCK) {
+        if (now - lastClockTick >= CLOCK_TICK_MS) {
+            lastClockTick = now;
+            struct tm t;
+            bool gotTime = getLocalTime(&t, 0);
+            bool midnight = gotTime && t.tm_hour == 0 && t.tm_min == 0 && t.tm_sec == 0;
+            updateClockTime(midnight);
+        }
+        if (clockFromIdle && WiFi.status() == WL_CONNECTED
+                && (now - lastClockPing) >= CLOCK_PING_MS) {
+            lastClockPing = now;
+            HTTPClient http;
+            http.begin(String(serverUrl) + "/v1/ping");
+            http.addHeader("X-API-Key", apiKey);
+            int code = http.GET();
+            http.end();
+            if (code == 200) {
+                clockFromIdle = false;
+                serverUnreachableSince = 0;
+                activateScreen(prevScreen);
+            }
         }
     } else if (activeScreen == CC_USAGE) {
         if (now - lastCCPoll >= CC_POLL_INTERVAL_MS) {
