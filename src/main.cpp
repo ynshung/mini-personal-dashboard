@@ -16,13 +16,14 @@ const char *apiKey   = API_KEY;
 const char *hostname = "esp32-dashboard";
 
 TFT_eSPI tft = TFT_eSPI();
+TFT_eSprite clockSprite(&tft);
 OneButtonTiny btn(19, false, false); // GPIO 19, active-high, no internal pull-up
 OneButtonTiny btn2(21, false, false); // GPIO 21, active-high, no internal pull-up
 
 #define NTP_OFFSET_HOURS  8.0f       // UTC+8; supports fractional e.g. -5.5, 5.75
 #define NTP_SERVER1       "pool.ntp.org"
 #define NTP_SERVER2       "time.google.com"
-const unsigned long CLOCK_TICK_MS  = 1000;
+const unsigned long CLOCK_TICK_MS  = 40;
 const unsigned long CLOCK_PING_MS  = 60000UL;
 
 const uint16_t COL_GREY      = 0x52AA;
@@ -41,6 +42,7 @@ unsigned long serverUnreachableSince = 0;
 bool clockFromIdle = false;
 unsigned long lastClockTick = 0;
 unsigned long lastClockPing = 0;
+char clockDateBuf[16] = "";
 
 struct CCUsage {
     float  five_hour_pct      = -1;
@@ -108,45 +110,84 @@ void drawIdle() {
 
 void drawClockScreen() {
     tft.fillScreen(TFT_BLACK);
+    clockSprite.setColorDepth(8);
+    void *p = clockSprite.createSprite(240, 240);
+    Serial.printf("Clock sprite: %s (free heap: %u, largest block: %u)\n",
+        p ? "OK" : "FAILED",
+        ESP.getFreeHeap(), heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT));
+    clockDateBuf[0] = '\0';
 }
 
 void updateClockTime(bool forceDate) {
+    struct timeval tv;
+    gettimeofday(&tv, nullptr);
     struct tm t;
-    if (!getLocalTime(&t, 100)) {
-        tft.setTextDatum(MC_DATUM);
-        tft.setTextColor(COL_GREY, TFT_BLACK);
-        tft.loadFont(NotoSans_Medium14);
-        tft.drawString("Syncing time...", CX, CX);
-        tft.unloadFont();
+    localtime_r(&tv.tv_sec, &t);
+    if (t.tm_year < 100) {
+        clockSprite.fillSprite(TFT_BLACK);
+        clockSprite.setTextDatum(MC_DATUM);
+        clockSprite.setTextColor(COL_GREY, TFT_BLACK);
+        clockSprite.loadFont(NotoSans_Medium14);
+        clockSprite.drawString("Syncing time...", CX, CX);
+        clockSprite.unloadFont();
+        clockSprite.pushSprite(0, 0);
         return;
     }
 
     if (forceDate) {
-        const char* weekdays[] = {"Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"};
-        tft.fillRect(0, 65, 240, 20, TFT_BLACK);
-        tft.setTextDatum(MC_DATUM);
-        tft.setTextColor(COL_GREY, TFT_BLACK);
-        tft.loadFont(NotoSans_Medium14);
-        tft.drawString(weekdays[t.tm_wday], CX, 75);
-
-        const char* months[] = {"Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"};
-        char dateBuf[16];
-        snprintf(dateBuf, sizeof(dateBuf), "%d %s %d",
-                 t.tm_mday, months[t.tm_mon], t.tm_year + 1900);
-        tft.fillRect(0, 92, 240, 20, TFT_BLACK);
-        tft.drawString(dateBuf, CX, 102);
-        tft.unloadFont();
+        const char* wdays[] = {"Sun","Mon","Tue","Wed","Thu","Fri","Sat"};
+        snprintf(clockDateBuf, sizeof(clockDateBuf), "%s %d",
+                 wdays[t.tm_wday], t.tm_mday);
     }
 
-    tft.fillRect(0, 118, 240, 20, TFT_BLACK);
-    char timeBuf[12];
-    snprintf(timeBuf, sizeof(timeBuf), "%02d:%02d:%02d",
-             t.tm_hour, t.tm_min, t.tm_sec);
-    tft.setTextDatum(MC_DATUM);
-    tft.setTextColor(TFT_WHITE, TFT_BLACK);
-    tft.loadFont(NotoSans_Medium14);
-    tft.drawString(timeBuf, CX, 128);
-    tft.unloadFont();
+    clockSprite.fillSprite(TFT_BLACK);
+
+    const float outerR = 108.0f;
+    const float innerR = 94.0f;
+    for (int i = 0; i < 12; i++) {
+        float angle = i * 30.0f * DEG_TO_RAD;
+        float sinA = sinf(angle);
+        float cosA = cosf(angle);
+        float ox = CX + sinA * outerR;
+        float oy = CX - cosA * outerR;
+        float ix = CX + sinA * innerR;
+        float iy = CX - cosA * innerR;
+        clockSprite.drawWideLine(ix, iy, ox, oy, 2.0f, COL_GREY, TFT_BLACK);
+    }
+
+    if (clockDateBuf[0] != '\0') {
+        clockSprite.setTextDatum(MC_DATUM);
+        clockSprite.setTextColor(COL_GREY, TFT_BLACK);
+        clockSprite.loadFont(NotoSans_Medium14);
+        clockSprite.drawString(clockDateBuf, CX, 165);
+        clockSprite.unloadFont();
+    }
+
+    float sec  = t.tm_sec + tv.tv_usec / 1000000.0f;
+    float min  = t.tm_min + sec / 60.0f;
+    float hour = (t.tm_hour % 12) + min / 60.0f;
+
+    float secAngle  = sec  * 6.0f   * DEG_TO_RAD;
+    float minAngle  = min  * 6.0f   * DEG_TO_RAD;
+    float hourAngle = hour * 30.0f  * DEG_TO_RAD;
+
+    float hx = CX + sinf(hourAngle) * 55.0f;
+    float hy = CX - cosf(hourAngle) * 55.0f;
+    clockSprite.drawWideLine(CX, CX, hx, hy, 4.0f, TFT_WHITE, TFT_BLACK);
+
+    float mx = CX + sinf(minAngle) * 80.0f;
+    float my = CX - cosf(minAngle) * 80.0f;
+    clockSprite.drawWideLine(CX, CX, mx, my, 3.0f, TFT_WHITE, TFT_BLACK);
+
+    float sx = CX + sinf(secAngle) * 90.0f;
+    float sy = CX - cosf(secAngle) * 90.0f;
+    float tx = CX - sinf(secAngle) * 15.0f;
+    float ty = CX + cosf(secAngle) * 15.0f;
+    clockSprite.drawWideLine(tx, ty, sx, sy, 2.0f, COL_RED, TFT_BLACK);
+
+    clockSprite.fillSmoothCircle(CX, CX, 5, TFT_WHITE, TFT_BLACK);
+
+    clockSprite.pushSprite(0, 0);
 }
 
 
@@ -592,6 +633,8 @@ void fetchCCUsage() {
 void activateScreen(Screen s) {
     if (activeScreen == RTSP && s != RTSP && rtspNetTaskHandle != nullptr)
         vTaskSuspend(rtspNetTaskHandle);
+    if (activeScreen == CLOCK && s != CLOCK)
+        clockSprite.deleteSprite();
     activeScreen = s;
     serverUnreachableSince = 0;
     pollFailed = false;
