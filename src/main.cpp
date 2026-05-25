@@ -5,6 +5,7 @@
 #include <TFT_eSPI.h>
 #include <TJpg_Decoder.h>
 #include <OneButtonTiny.h>
+#include <time.h>
 #include "NotoSans_Medium14.h"
 #include "claude_logo.h"
 
@@ -27,9 +28,9 @@ const uint16_t COL_RED       = 0xC9E7; // muted red #d03b3b
 const unsigned long CC_POLL_INTERVAL_MS = 10000;
 const unsigned long IDLE_TIMEOUT_MS    = 10UL * 60UL * 1000UL; // 10 minutes
 
-enum Screen { SPOTIFY, CC_USAGE, RTSP, IDLE };
-Screen activeScreen = CC_USAGE;
-Screen prevScreen = CC_USAGE;
+enum Screen { TIME, SPOTIFY, CC_USAGE, RTSP };
+Screen activeScreen = TIME;
+Screen prevScreen = TIME;
 unsigned long serverUnreachableSince = 0;
 
 struct CCUsage {
@@ -96,14 +97,53 @@ void drawIdle() {
     hasArt = false;
 }
 
-void drawSleepScreen() {
-    tft.fillScreen(TFT_BLACK);
-    tft.setTextDatum(MC_DATUM);
-    tft.setTextColor(COL_GREY, TFT_BLACK);
+#ifndef TZ_OFFSET_SECONDS
+#define TZ_OFFSET_SECONDS 0
+#endif
+
+void updateTimeScreen() {
+    static const char* DAYS[]   = {"SUNDAY","MONDAY","TUESDAY","WEDNESDAY",
+                                   "THURSDAY","FRIDAY","SATURDAY"};
+    static const char* MONTHS[] = {"JAN","FEB","MAR","APR","MAY","JUN",
+                                   "JUL","AUG","SEP","OCT","NOV","DEC"};
+    struct tm t;
     tft.loadFont(NotoSans_Medium14);
-    tft.drawString("zZzZz", CX, 105);
-    tft.drawString("Press to wake", CX, 130);
+    tft.setTextDatum(MC_DATUM);
+
+    if (!getLocalTime(&t)) {
+        tft.fillRect(0, 112, 240, 18, TFT_BLACK);
+        tft.setTextColor(COL_GREY, TFT_BLACK);
+        tft.drawString("Syncing time...", CX, 120);
+        tft.unloadFont();
+        return;
+    }
+
+    // Weekday (center Y=95)
+    tft.fillRect(0, 87, 240, 18, TFT_BLACK);
+    tft.setTextColor(COL_GREY, TFT_BLACK);
+    tft.drawString(DAYS[t.tm_wday], CX, 95);
+
+    // Date (center Y=115)
+    tft.fillRect(0, 107, 240, 18, TFT_BLACK);
+    char datebuf[16];
+    snprintf(datebuf, sizeof(datebuf), "%d %s %d",
+             t.tm_mday, MONTHS[t.tm_mon], t.tm_year + 1900);
+    tft.drawString(datebuf, CX, 115);
+
+    // Time HH:MM:SS (center Y=139)
+    tft.fillRect(0, 131, 240, 18, TFT_BLACK);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    char timebuf[12];
+    snprintf(timebuf, sizeof(timebuf), "%02d:%02d:%02d",
+             t.tm_hour, t.tm_min, t.tm_sec);
+    tft.drawString(timebuf, CX, 139);
+
     tft.unloadFont();
+}
+
+void drawTimeScreen() {
+    tft.fillScreen(TFT_BLACK);
+    updateTimeScreen();
 }
 
 
@@ -319,6 +359,7 @@ void initWiFi() {
     Serial.printf("\nConnected! IP: %s\n", WiFi.localIP().toString().c_str());
     Serial.printf("Hostname: %s\n", WiFi.getHostname());
     Serial.printf("RSSI: %d\n", WiFi.RSSI());
+    configTime(TZ_OFFSET_SECONDS, 0, "pool.ntp.org", "time.nist.gov");
 }
 
 // --- Album art streaming ---
@@ -543,7 +584,9 @@ void activateScreen(Screen s) {
     activeScreen = s;
     serverUnreachableSince = 0;
     pollFailed = false;
-    if (s == CC_USAGE) {
+    if (s == TIME) {
+        drawTimeScreen();
+    } else if (s == CC_USAGE) {
         ccNeedsFullRedraw = true;
         drawCCUsage();
         fetchCCUsage();
@@ -581,13 +624,13 @@ void setup() {
     TJpgDec.setJpgScale(1);
     TJpgDec.setCallback(tft_output);
     initWiFi();
-    drawStatus("Connecting to server...");
+    drawTimeScreen();
     rtspFreeSem  = xSemaphoreCreateCounting(2, 2);
     rtspReadySem = xSemaphoreCreateCounting(2, 0);
     xTaskCreatePinnedToCore(rtspNetTask, "rtspNet", 8192, nullptr, 1, &rtspNetTaskHandle, 0);
     vTaskSuspend(rtspNetTaskHandle);
     btn.attachClick([]() {
-        if (activeScreen == IDLE) { wakeFromIdle(); return; }
+        if (activeScreen == TIME) { wakeFromIdle(); return; }
         if (activeScreen == RTSP) {
             rtspIndex = (rtspIndex + 1) % rtspStreamCount;
             return;
@@ -595,7 +638,7 @@ void setup() {
         sendCommand("/v1/spotify/toggle");
     });
     btn.attachDoubleClick([]() {
-        if (activeScreen == IDLE) { wakeFromIdle(); return; }
+        if (activeScreen == TIME) { wakeFromIdle(); return; }
         if (activeScreen == RTSP) {
             rtspIndex = (rtspIndex - 1 + rtspStreamCount) % rtspStreamCount;
             return;
@@ -603,24 +646,24 @@ void setup() {
         sendCommand("/v1/spotify/next");
     });
     btn.attachLongPressStart([]() {
-        if (activeScreen == IDLE) { wakeFromIdle(); return; }
+        if (activeScreen == TIME) { wakeFromIdle(); return; }
         if (activeScreen == RTSP) return;
         sendCommand("/v1/spotify/previous");
     });
     btn2.attachClick([]() {
-        if (activeScreen == IDLE) { wakeFromIdle(); return; }
-        // Forward cycle: SPOTIFY -> RTSP -> CC_USAGE -> SPOTIFY
+        if (activeScreen == TIME) { wakeFromIdle(); return; }
+        // Forward cycle: TIME -> SPOTIFY -> RTSP -> CC_USAGE -> TIME
         Screen next;
         if (activeScreen == SPOTIFY)   next = RTSP;
         else if (activeScreen == RTSP) next = CC_USAGE;
-        else                           next = SPOTIFY;
+        else                           next = TIME;
         activateScreen(next);
     });
     btn2.attachDoubleClick([]() {
-        if (activeScreen == IDLE) { wakeFromIdle(); return; }
-        // Backward cycle: SPOTIFY -> CC_USAGE -> RTSP -> SPOTIFY
+        if (activeScreen == TIME) { wakeFromIdle(); return; }
+        // Backward cycle: TIME -> CC_USAGE -> RTSP -> SPOTIFY -> TIME
         Screen target;
-        if (activeScreen == SPOTIFY)       target = CC_USAGE;
+        if (activeScreen == SPOTIFY)       target = TIME;
         else if (activeScreen == CC_USAGE) target = RTSP;
         else                               target = SPOTIFY;
         activateScreen(target);
@@ -635,14 +678,19 @@ void loop() {
     btn2.tick();
     unsigned long now = millis();
 
-    if (serverUnreachableSince > 0 && activeScreen != IDLE
+    if (serverUnreachableSince > 0 && activeScreen != TIME
             && (now - serverUnreachableSince) >= IDLE_TIMEOUT_MS) {
         prevScreen = activeScreen;
-        activeScreen = IDLE;
-        drawSleepScreen();
+        activateScreen(TIME);
     }
 
-    if (activeScreen == SPOTIFY) {
+    if (activeScreen == TIME) {
+        static unsigned long lastTimeTick = 0;
+        if (now - lastTimeTick >= 1000) {
+            lastTimeTick = now;
+            updateTimeScreen();
+        }
+    } else if (activeScreen == SPOTIFY) {
         // End-of-song poll
         if (current.is_playing && current.duration_ms > 0) {
             uint32_t estimated = current.progress_ms + (uint32_t)(now - lastFetchMs);
