@@ -17,6 +17,7 @@ server/rtsp_config.json
 # Editor & tooling
 .vscode/
 .claude/
+.antigravitycli/
 
 .pio
 .superpowers/
