@@ -24,7 +24,6 @@ OneButtonTiny btn2(21, false, false); // GPIO 21, active-high, no internal pull-
 #define NTP_SERVER1       "pool.ntp.org"
 #define NTP_SERVER2       "time.google.com"
 const unsigned long CLOCK_TICK_MS  = 40;
-const unsigned long CLOCK_PING_MS  = 60000UL;
 
 const uint16_t COL_GREY      = 0x52AA;
 const uint16_t COL_BAR_BG    = 0x39C7; // white at 25% opacity on black
@@ -33,15 +32,12 @@ const uint16_t COL_BAR_PLAY  = 0x1CC4; // Spotify green #1DB954 in RGB565
 const uint16_t COL_BAR_ERROR = 0xF583; // orange #fab219
 const uint16_t COL_RED       = 0xC9E7; // muted red #d03b3b
 const unsigned long CC_POLL_INTERVAL_MS = 10000;
-const unsigned long IDLE_TIMEOUT_MS    = 10UL * 60UL * 1000UL; // 10 minutes
+const unsigned long IDLE_TIMEOUT_MS    = 2UL * 60UL * 1000UL; // 2 minutes
 
 enum Screen { CLOCK, SPOTIFY, CC_USAGE, RTSP };
 Screen activeScreen = CLOCK;
-Screen prevScreen   = CC_USAGE;
 unsigned long serverUnreachableSince = 0;
-bool clockFromIdle = false;
 unsigned long lastClockTick = 0;
-unsigned long lastClockPing = 0;
 char clockDateBuf[16] = "";
 
 struct CCUsage {
@@ -640,7 +636,6 @@ void activateScreen(Screen s) {
     pollFailed = false;
     if (s == CLOCK) {
         lastClockTick = millis();
-        lastClockPing = millis();
         drawClockScreen();
         updateClockTime(true);
     } else if (s == CC_USAGE) {
@@ -711,7 +706,6 @@ void setup() {
         else if (activeScreen == CC_USAGE) next = RTSP;
         else if (activeScreen == RTSP)     next = SPOTIFY;
         else                               next = CLOCK;
-        clockFromIdle = false;
         activateScreen(next);
     });
     btn2.attachDoubleClick([]() {
@@ -721,7 +715,6 @@ void setup() {
         else if (activeScreen == SPOTIFY)  target = RTSP;
         else if (activeScreen == RTSP)     target = CC_USAGE;
         else                               target = CLOCK;
-        clockFromIdle = false;
         activateScreen(target);
     });
     btn2.attachLongPressStart([]() {
@@ -736,8 +729,6 @@ void loop() {
 
     if (serverUnreachableSince > 0 && activeScreen != CLOCK
             && (now - serverUnreachableSince) >= IDLE_TIMEOUT_MS) {
-        prevScreen = activeScreen;
-        clockFromIdle = true;
         activateScreen(CLOCK);
     }
 
@@ -778,20 +769,6 @@ void loop() {
             bool gotTime = getLocalTime(&t, 0);
             bool midnight = gotTime && t.tm_hour == 0 && t.tm_min == 0 && t.tm_sec == 0;
             updateClockTime(midnight);
-        }
-        if (clockFromIdle && WiFi.status() == WL_CONNECTED
-                && (now - lastClockPing) >= CLOCK_PING_MS) {
-            lastClockPing = now;
-            HTTPClient http;
-            http.begin(String(serverUrl) + "/v1/ping");
-            http.addHeader("X-API-Key", apiKey);
-            int code = http.GET();
-            http.end();
-            if (code == 200) {
-                clockFromIdle = false;
-                serverUnreachableSince = 0;
-                activateScreen(prevScreen);
-            }
         }
     } else if (activeScreen == CC_USAGE) {
         if (now - lastCCPoll >= CC_POLL_INTERVAL_MS) {

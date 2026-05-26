@@ -151,7 +151,7 @@ The display has four screens cycled by GPIO 21.
 - **Weekday** — e.g. "Monday" (grey)
 - **Date** — e.g. "26 May 2026" (grey)
 - **Time** — `HH:MM:SS` (white)
-- **Server fallback** — automatically switches to this screen after 10 minutes of server unreachability; pings `/v1/ping` every 60 seconds and restores the previous screen when the server comes back
+- **Server fallback** — automatically switches to this screen after 2 minutes of server unreachability and stays there permanently
 - Timezone configured via `NTP_OFFSET_HOURS` in `src/main.cpp` (default `8.0f` = UTC+8; supports fractional offsets e.g. `-5.5`)
 
 **Spotify screen** — polls `/v1/spotify/now-playing` every 5 seconds:
@@ -222,18 +222,6 @@ DEVELOPMENT_MODE=false
 ---
 
 ## Endpoints
-
-### `GET /v1/ping`
-
-Health-check endpoint used by the ESP32 clock screen to detect when the server comes back online after an outage.
-
-**Response**
-
-```json
-{"status": "ok"}
-```
-
----
 
 ### `GET /v1/rtsp/frame?index=N`
 
