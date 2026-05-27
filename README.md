@@ -2,7 +2,7 @@
 
 ![Spotify screen](docs/assets/spotify.jpeg)![CC Usage screen](docs/assets/cc.jpeg)
 
-A personal dashboard running on an ESP32 with a 240×240 round GC9A01 display. Shows a live clock, Spotify now-playing with album art and playback controls, Claude Code plan usage, and RTSP camera feeds. Consists of a local FastAPI server (macOS) and ESP32 firmware that polls it over Wi-Fi.
+A personal dashboard running on an ESP32 with a 240×240 round GC9A01 display. Shows a live clock, Spotify now-playing with album art and playback controls, Claude Code plan usage, RTSP camera feeds, and Pinterest board photos. Consists of a local FastAPI server (macOS) and ESP32 firmware that polls it over Wi-Fi.
 
 ## Disclaimer
 
@@ -10,11 +10,11 @@ This is a personal project which is heavily developed using Claude Code. Please 
 
 ## Features
 
-- **Clock** — always-on NTP-synced digital clock (weekday, date, time); initial startup screen; falls back to clock when server is unreachable and auto-restores when it comes back
+- **Clock** — always-on NTP-synced analog clock; initial startup screen; falls back to clock when server is unreachable
 - **Spotify Player** — now-playing display with playback controls (play/pause, next, previous)
 - **Claude Usage Monitor** — real-time Claude Code plan usage (5-hour session and 7-day windows), with reset timers and expected usage indicators
 - **RTSP Camera Viewer** — live camera feed display with multi-stream support; server proxies H.264 RTSP streams as JPEG snapshots
-- **RevenueCat Dashboard** *(TODO)* — subscription revenue metrics
+- **Pinterest Board** — displays smart-cropped photos from a Pinterest board, auto-rotating every 5 minutes with manual advance
 
 ## Get Started
 
@@ -25,8 +25,11 @@ Copy the template below into a `.env` file in the project root:
 ```env
 API_KEY=your_secret_key
 SERVER_URL=http://192.168.1.100:7333
-SPOTIFY_CLIENT_ID=your_client_id
-SPOTIFY_CLIENT_SECRET=your_client_secret
+SPOTIFY_CLIENT_ID=your_spotify_client_id
+SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
+PINTEREST_CLIENT_ID=your_pinterest_app_id
+PINTEREST_CLIENT_SECRET=your_pinterest_app_secret
+PINTEREST_BOARD_ID=username/board-name
 WIFI_SSID=your_network_name
 WIFI_PASSWORD=your_wifi_password
 DEVELOPMENT_MODE=false
@@ -35,6 +38,8 @@ DEVELOPMENT_MODE=false
 - `API_KEY` — used by the ESP32 to authenticate requests (set to any secret string)
 - `SERVER_URL` — base URL of the server (e.g. `http://192.168.1.100:7333`), used by the ESP32
 - `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` — from your [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
+- `PINTEREST_CLIENT_ID` / `PINTEREST_CLIENT_SECRET` — from your [Pinterest Developer App](https://developers.pinterest.com/) (optional, only needed for the Pinterest screen)
+- `PINTEREST_BOARD_ID` — your board in `username/board-name` format (e.g. `johndoe/travel-photos`)
 - `WIFI_SSID` / `WIFI_PASSWORD` — for the ESP32 to connect to your network
 - `DEVELOPMENT_MODE` — set to `true` to skip API key checks (for local development only, default `false`)
 
@@ -95,13 +100,22 @@ This file is gitignored (may contain credentials in URLs).
 2. Visit `http://127.0.0.1:7333/v1/spotify/auth` in your browser and approve access
 3. Tokens are saved to `server/.spotify_tokens.json` and refresh automatically
 
-### 5. Flash the firmware
+### 5. Authorize Pinterest (optional)
+
+1. Create an app at [developers.pinterest.com](https://developers.pinterest.com/) and add `http://127.0.0.1:7333/v1/pinterest/callback` as a Redirect URI
+2. Add `PINTEREST_CLIENT_ID`, `PINTEREST_CLIENT_SECRET`, and `PINTEREST_BOARD_ID` to `.env`
+3. Visit `http://127.0.0.1:7333/v1/pinterest/auth` in your browser and approve access
+4. Tokens are saved to `server/.pinterest_tokens.json` and refresh automatically
+
+### 6. Flash the firmware
 
 ```bash
 pio run --target upload
 ```
 
 Requires [PlatformIO](https://platformio.org/). The build reads `.env` automatically for Wi-Fi and API key config.
+
+> **Note:** The Pinterest screen requires completing step 5 above before it will show images. All other screens work without Pinterest credentials.
 
 ## Firmware
 
@@ -135,16 +149,16 @@ Board: ESP32 (`esp32dev`), framework: Arduino. Source in `src/main.cpp`.
 
 | GPIO | Gesture | Action |
 |---|---|---|
-| 19 | Single click | Toggle play/pause (Spotify) / Next stream (RTSP) / No-op (Clock) |
-| 19 | Double click | Next track (Spotify) / Previous stream (RTSP) / No-op (Clock) |
-| 19 | Long press | Previous track (Spotify) / No-op (RTSP, Clock) |
-| 21 | Single click | Cycle screens forward: Clock → CC Usage → RTSP → Spotify → … |
-| 21 | Double click | Cycle screens backward: Clock → Spotify → RTSP → CC Usage → … |
+| 19 | Single click | Toggle play/pause (Spotify) / Next stream (RTSP) / Next image (Pinterest) / No-op (Clock, CC Usage) |
+| 19 | Double click | Next track (Spotify) / Previous stream (RTSP) / No-op (Pinterest, Clock, CC Usage) |
+| 19 | Long press | Previous track (Spotify) / No-op (RTSP, Pinterest, Clock, CC Usage) |
+| 21 | Single click | Cycle screens forward: Clock → CC Usage → RTSP → Spotify → Pinterest → Clock |
+| 21 | Double click | Cycle screens backward: Clock → Pinterest → Spotify → RTSP → CC Usage → Clock |
 | 21 | Long press | Restart device |
 
 ### Display UI
 
-The display has four screens cycled by GPIO 21.
+The display has five screens cycled by GPIO 21.
 
 **Clock screen** (default startup screen) — NTP-synced, updates every second:
 
@@ -167,6 +181,13 @@ The display has four screens cycled by GPIO 21.
 - **Stream label and dots indicator** — composited server-side onto the JPEG (controlled by `overlay` in config); label shown near top, dots near bottom indicate selected stream out of total
 - **Multi-stream navigation** — single/double click GPIO 19 to cycle next/previous stream
 - Configure streams in `server/rtsp_config.json` (copy from `server/rtsp_config.json.example`)
+
+**Pinterest screen** — polls `/v1/pinterest/image` on activation and every 5 minutes:
+
+- **Full-screen board photo** — server fetches a random image from your Pinterest board, smart-crops it to a square using content-aware cropping (`smartcrop`), resizes to 240×240, and applies the circular mask; processed images are cached to disk
+- **Manual advance** — single click GPIO 19 to load a new random image immediately
+- **Auto-rotate** — automatically fetches a new image every 5 minutes (`PINTEREST_ROTATE_MS`)
+- Requires Pinterest OAuth setup (see Get Started step 5)
 
 **CC Usage screen** — polls `/v1/cc-usage` every 10 seconds:
 
@@ -202,8 +223,11 @@ Create a `.env` file in the project root:
 ```env
 API_KEY=your_secret_key
 SERVER_URL=http://192.168.1.100:7333
-SPOTIFY_CLIENT_ID=your_client_id
-SPOTIFY_CLIENT_SECRET=your_client_secret
+SPOTIFY_CLIENT_ID=your_spotify_client_id
+SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
+PINTEREST_CLIENT_ID=your_pinterest_app_id
+PINTEREST_CLIENT_SECRET=your_pinterest_app_secret
+PINTEREST_BOARD_ID=username/board-name
 WIFI_SSID=your_network_name
 WIFI_PASSWORD=your_wifi_password
 DEVELOPMENT_MODE=false
@@ -211,10 +235,13 @@ DEVELOPMENT_MODE=false
 
 | Variable | Description |
 |---|---|
-| `API_KEY` | Required (unless `DEVELOPMENT_MODE` is set). All endpoints (except Spotify OAuth) require `X-API-Key` header matching this value. |
+| `API_KEY` | Required (unless `DEVELOPMENT_MODE` is set). All endpoints (except OAuth callbacks) require `X-API-Key` header matching this value. |
 | `SERVER_URL` | Base URL of the dashboard server (used by ESP32 firmware) |
 | `SPOTIFY_CLIENT_ID` | From your [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) |
 | `SPOTIFY_CLIENT_SECRET` | From your [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) |
+| `PINTEREST_CLIENT_ID` | From your [Pinterest Developer App](https://developers.pinterest.com/) (optional) |
+| `PINTEREST_CLIENT_SECRET` | From your [Pinterest Developer App](https://developers.pinterest.com/) (optional) |
+| `PINTEREST_BOARD_ID` | Board in `username/board-name` format (optional) |
 | `WIFI_SSID` | Wi-Fi network name for the ESP32 |
 | `WIFI_PASSWORD` | Wi-Fi password for the ESP32 |
 | `DEVELOPMENT_MODE` | Set to `true` to disable API key authentication (for local development only) |
@@ -373,6 +400,40 @@ Returns `204 No Content` if nothing is playing.
 | `204` | Nothing playing or no album art available |
 | `401` | Not authorized — visit `/v1/spotify/auth` |
 | `502` | Unexpected response from Spotify API |
+
+---
+
+---
+
+### `GET /v1/pinterest/auth`
+
+Redirects to Pinterest's authorization page. Visit once in a browser to authorize the server. After approval, Pinterest redirects to `/v1/pinterest/callback` and tokens are saved automatically to `server/.pinterest_tokens.json`.
+
+**Setup (one-time):**
+1. Add `PINTEREST_CLIENT_ID`, `PINTEREST_CLIENT_SECRET`, and `PINTEREST_BOARD_ID` to `.env`
+2. Ensure `http://127.0.0.1:7333/v1/pinterest/callback` is set as a Redirect URI in your Pinterest app
+3. Start the server and visit `http://127.0.0.1:7333/v1/pinterest/auth` in your browser
+
+---
+
+### `GET /v1/pinterest/image`
+
+Returns a random image from your Pinterest board as a 240×240 JPEG, smart-cropped and circular-masked.
+
+The server maintains an in-memory cache of pin image URLs (refreshed hourly). On each request it picks a random URL, smart-crops the source image to a square using content-aware cropping, resizes to 240×240, applies a circular mask, and encodes to JPEG. Processed images are cached to disk in `server/.pinterest_cache/` (LRU, max 50 entries) so repeat requests for the same pin are instant.
+
+The selected image URL is printed to the server terminal on every request.
+
+**Response:** `image/jpeg` — 240×240 px with circular mask applied
+
+**Error responses**
+
+| Status | Cause |
+|---|---|
+| `500` | Missing `PINTEREST_CLIENT_ID`, `PINTEREST_CLIENT_SECRET`, or `PINTEREST_BOARD_ID` in `.env` |
+| `503` | Not authorized — visit `/v1/pinterest/auth` |
+
+Returns a "No images" placeholder JPEG if the board is empty or the Pinterest API is unreachable.
 
 ---
 
