@@ -22,3 +22,5 @@ server/rtsp_config.json
 .pio
 .superpowers/
 server/.album_art_cache/
+server/.pinterest_cache/
+server/.pinterest_tokens.json

@@ -25,9 +25,11 @@ This is a FastAPI server (`server/`) that exposes JSON endpoints for a NodeMCU m
 
 **Adding a new endpoint:** create `server/routes/<feature>.py` with a `router = APIRouter()`, add the route handlers, then register it in `main.py` with `app.include_router(<router>, prefix="/v1")`.
 
-**API key auth:** all endpoints (except `/v1/spotify/auth` and `/v1/spotify/callback`) require an `X-API-Key` header matching the `API_KEY` value in `.env`.
+**API key auth:** all endpoints (except `/v1/spotify/auth`, `/v1/spotify/callback`, `/v1/pinterest/auth`, `/v1/pinterest/callback`) require an `X-API-Key` header matching the `API_KEY` value in `.env`. Exempt paths are listed in `OPEN_PATHS` in `main.py`.
 
 **Spotify auth flow:** `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` come from `.env` (project root). The OAuth refresh token is obtained once by visiting `/v1/spotify/auth` in a browser and is cached in `server/.spotify_tokens.json` (gitignored). The `now-playing` endpoint auto-refreshes the access token when it expires.
+
+**Pinterest auth flow:** mirrors Spotify exactly. `PINTEREST_CLIENT_ID`, `PINTEREST_CLIENT_SECRET`, and `PINTEREST_BOARD_ID` come from `.env`. OAuth refresh token obtained once by visiting `/v1/pinterest/auth`; cached in `server/.pinterest_tokens.json` (gitignored); auto-refreshed on expiry. The `/v1/pinterest/image` endpoint fetches pin image URLs from the Pinterest API v5 (`GET /v5/boards/{board_id}/pins`), caches the URL list in memory (1-hour TTL), picks a random `1200x` image URL, smart-crops it to a square using `smartcrop`, resizes to 240×240, applies circular mask (radius 120), encodes JPEG quality 75, and caches to `server/.pinterest_cache/` (LRU, max 50 entries).
 
 **cc-usage auth:** reads the Claude Code OAuth token directly from the macOS Keychain (`Claude Code-credentials`) — no config needed, macOS only.
 
@@ -70,10 +72,11 @@ Hardware: GC9A01 240×240 round TFT, driven via SPI.
 - GPIO 19, active-high, no internal pull-up (OneButton library)
   - Spotify screen: single click → toggle play/pause, double click → next track, long press → previous track
   - RTSP screen: single click → next stream (`rtspIndex++`), double click → previous stream, long press → no-op
-  - Clock screen: all gestures → no-op
+  - Pinterest screen: single click → `fetchPinterestImage()` (load new random image), double click → no-op, long press → no-op
+  - Clock / CC Usage screen: all gestures → no-op
 - GPIO 21, active-high, no internal pull-up
-  - Single click → cycle forward: `CLOCK → CC_USAGE → RTSP → SPOTIFY → CLOCK` (via `activateScreen()`)
-  - Double click → cycle backward: `CLOCK → SPOTIFY → RTSP → CC_USAGE → CLOCK`
+  - Single click → cycle forward: `CLOCK → CC_USAGE → RTSP → SPOTIFY → PINTEREST → CLOCK` (via `activateScreen()`)
+  - Double click → cycle backward: `CLOCK → PINTEREST → SPOTIFY → RTSP → CC_USAGE → CLOCK`
   - Long press → `ESP.restart()`
 
 **Screens (`src/main.cpp`):**
@@ -81,6 +84,7 @@ Hardware: GC9A01 240×240 round TFT, driven via SPI.
 - `CC_USAGE`: polls `/v1/cc-usage` every 10 s; renders Claude logo (`include/claude_logo.h`, RGB565 bitmap stored byte-swapped for TFT_eSPI), 5-HR and 7-DAY utilization blocks, and a "last refreshed" label at the bottom; color thresholds 0–60% white, 61–99% orange, 100% red; `-1` sentinel means null (plan doesn't have that window); server caches upstream response for 2 min and includes `refreshed_ago` string in every response; each usage bar has a small white downward triangle above it marking `time_pct` (percentage of the billing window elapsed, computed server-side from `resets_at`)
 - `RTSP`: dual-core pipeline — `rtspNetTask` (Core 0) fetches `/v1/rtsp/frame?index=rtspIndex` continuously using ping-pong double buffers (`rtspBuf[2][32768]`) and `rtspFreeSem`/`rtspReadySem` counting semaphores; `loop()` (Core 1) renders each frame via TJpgDec as soon as it arrives; overlay (label + dots) composited server-side into the JPEG; `rtspStreamCount` tracked from `X-Stream-Count` header; stream index persists across screen switches; task suspended when not on RTSP screen
 - `SPOTIFY`: polls `/v1/spotify/now-playing` every 5 s, renders album art, progress bar
+- `PINTEREST`: calls `fetchPinterestImage()` on activation and every `PINTEREST_ROTATE_MS` (5 min); single-click GPIO 19 also triggers an immediate fetch; `fetchPinterestImage()` HTTP GETs `/v1/pinterest/image`, streams JPEG into a heap buffer, decodes via TJpgDec full-screen (same pattern as `fetchAlbumArt()`); sets `serverUnreachableSince` on failure
 - On screen switch: `activateScreen(s)` clears `serverUnreachableSince`, `pollFailed`, runs per-screen init (fetch + draw); screens poll independently
 
 **Polling & rendering:**

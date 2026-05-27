@@ -34,7 +34,7 @@ const uint16_t COL_RED       = 0xC9E7; // muted red #d03b3b
 const unsigned long CC_POLL_INTERVAL_MS = 10000;
 const unsigned long IDLE_TIMEOUT_MS    = 2UL * 60UL * 1000UL; // 2 minutes
 
-enum Screen { CLOCK, SPOTIFY, CC_USAGE, RTSP };
+enum Screen { CLOCK, SPOTIFY, CC_USAGE, RTSP, PINTEREST };
 Screen activeScreen = CLOCK;
 unsigned long serverUnreachableSince = 0;
 unsigned long lastClockTick = 0;
@@ -75,6 +75,8 @@ unsigned long lastTick    = 0;
 unsigned long lastFetchMs = 0;
 bool hasArt = false;
 bool pollFailed = false;
+unsigned long lastPinterestFetch = 0;
+const unsigned long PINTEREST_ROTATE_MS = 300000UL; // 5 minutes
 static volatile int rtspIndex       = 0;
 static volatile int rtspStreamCount = 1;
 
@@ -479,6 +481,72 @@ bool fetchAlbumArt() {
     return true;
 }
 
+void fetchPinterestImage() {
+    if (WiFi.status() != WL_CONNECTED) return;
+
+    HTTPClient http;
+    http.begin(String(serverUrl) + "/v1/pinterest/image");
+    http.addHeader("X-API-Key", apiKey);
+
+    int code = http.GET();
+    if (code != 200) {
+        Serial.printf("Pinterest HTTP error: %d\n", code);
+        http.end();
+        if (serverUnreachableSince == 0) serverUnreachableSince = millis();
+        if (!pollFailed) {
+            pollFailed = true;
+            drawStatus("Server unreachable");
+        }
+        return;
+    }
+
+    int contentLength = http.getSize();
+    if (contentLength <= 0 || contentLength > 100000) {
+        Serial.printf("Pinterest unexpected size: %d\n", contentLength);
+        http.end();
+        return;
+    }
+
+    uint8_t *buf = (uint8_t *)malloc(contentLength);
+    if (!buf) {
+        Serial.println("Pinterest malloc failed");
+        http.end();
+        return;
+    }
+
+    WiFiClient *stream = http.getStreamPtr();
+    int received = 0;
+    while (received < contentLength && stream->connected()) {
+        int avail = stream->available();
+        if (avail > 0) {
+            int toRead = min(avail, contentLength - received);
+            stream->readBytes(buf + received, toRead);
+            received += toRead;
+        } else {
+            delay(1);
+        }
+    }
+    http.end();
+
+    if (received != contentLength) {
+        Serial.printf("Pinterest incomplete: %d/%d bytes\n", received, contentLength);
+        free(buf);
+        return;
+    }
+
+    tft.startWrite();
+    tft.setSwapBytes(true);
+    TJpgDec.drawJpg(0, 0, buf, contentLength);
+    tft.setSwapBytes(false);
+    tft.endWrite();
+
+    free(buf);
+    serverUnreachableSince = 0;
+    pollFailed = false;
+    lastPinterestFetch = millis();
+    Serial.println("Pinterest image loaded");
+}
+
 // --- Networking ---
 
 void sendCommand(const char* path) {
@@ -662,6 +730,10 @@ void activateScreen(Screen s) {
         rtspErrorShown = false;
         drawStatus("Loading...");
         vTaskResume(rtspNetTaskHandle);
+    } else if (s == PINTEREST) {
+        drawStatus("Loading...");
+        fetchPinterestImage();
+        lastPinterestFetch = millis();
     }
 }
 
@@ -684,6 +756,10 @@ void setup() {
             rtspIndex = (rtspIndex + 1) % rtspStreamCount;
             return;
         }
+        if (activeScreen == PINTEREST) {
+            fetchPinterestImage();
+            return;
+        }
         sendCommand("/v1/spotify/toggle");
     });
     btn.attachDoubleClick([]() {
@@ -692,29 +768,33 @@ void setup() {
             rtspIndex = (rtspIndex - 1 + rtspStreamCount) % rtspStreamCount;
             return;
         }
+        if (activeScreen == PINTEREST) return;
         sendCommand("/v1/spotify/next");
     });
     btn.attachLongPressStart([]() {
         if (activeScreen == CLOCK) return;
         if (activeScreen == RTSP) return;
+        if (activeScreen == PINTEREST) return;
         sendCommand("/v1/spotify/previous");
     });
     btn2.attachClick([]() {
-        // Forward cycle: CLOCK -> CC_USAGE -> RTSP -> SPOTIFY -> CLOCK
+        // Forward cycle: CLOCK -> CC_USAGE -> RTSP -> SPOTIFY -> PINTEREST -> CLOCK
         Screen next;
-        if      (activeScreen == CLOCK)    next = CC_USAGE;
-        else if (activeScreen == CC_USAGE) next = RTSP;
-        else if (activeScreen == RTSP)     next = SPOTIFY;
-        else                               next = CLOCK;
+        if      (activeScreen == CLOCK)      next = CC_USAGE;
+        else if (activeScreen == CC_USAGE)   next = RTSP;
+        else if (activeScreen == RTSP)       next = SPOTIFY;
+        else if (activeScreen == SPOTIFY)    next = PINTEREST;
+        else                                 next = CLOCK;
         activateScreen(next);
     });
     btn2.attachDoubleClick([]() {
-        // Backward cycle: CLOCK -> SPOTIFY -> RTSP -> CC_USAGE -> CLOCK
+        // Backward cycle: CLOCK -> PINTEREST -> SPOTIFY -> RTSP -> CC_USAGE -> CLOCK
         Screen target;
-        if      (activeScreen == CLOCK)    target = SPOTIFY;
-        else if (activeScreen == SPOTIFY)  target = RTSP;
-        else if (activeScreen == RTSP)     target = CC_USAGE;
-        else                               target = CLOCK;
+        if      (activeScreen == CLOCK)      target = PINTEREST;
+        else if (activeScreen == PINTEREST)  target = SPOTIFY;
+        else if (activeScreen == SPOTIFY)    target = RTSP;
+        else if (activeScreen == RTSP)       target = CC_USAGE;
+        else                                 target = CLOCK;
         activateScreen(target);
     });
     btn2.attachLongPressStart([]() {
@@ -790,6 +870,10 @@ void loop() {
         } else if (rtspFetchError && !rtspErrorShown) {
             drawStatus("Stream unavailable");
             rtspErrorShown = true;
+        }
+    } else if (activeScreen == PINTEREST) {
+        if (now - lastPinterestFetch >= PINTEREST_ROTATE_MS) {
+            fetchPinterestImage();
         }
     }
 }

@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from routes.cc_usage import router as cc_usage_router
+from routes.pinterest import router as pinterest_router
 from routes.rtsp import router as rtsp_router
 from routes.spotify import router as spotify_router
 
@@ -14,7 +15,12 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)-9s %(name)s - %(mes
 
 app = FastAPI()
 
-OPEN_PATHS = {"/v1/spotify/auth", "/v1/spotify/callback"}
+OPEN_PATHS = {
+    "/v1/spotify/auth",
+    "/v1/spotify/callback",
+    "/v1/pinterest/auth",
+    "/v1/pinterest/callback",
+}
 
 
 @app.middleware("http")
@@ -30,6 +36,7 @@ async def verify_api_key(request: Request, call_next):
 
 
 app.include_router(cc_usage_router, prefix="/v1")
+app.include_router(pinterest_router, prefix="/v1")
 app.include_router(rtsp_router, prefix="/v1")
 app.include_router(spotify_router, prefix="/v1")
 
