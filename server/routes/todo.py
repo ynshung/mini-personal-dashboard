@@ -300,10 +300,7 @@ _UI_HTML = """\
     <input type="text" id="new-task" placeholder="New task…" autocomplete="off">
     <button class="btn btn-add" onclick="addTask()">Add</button>
   </div>
-  <h2>Active</h2>
-  <ul class="task-list" id="active-list"></ul>
-  <h2>Done</h2>
-  <ul class="task-list" id="done-list"></ul>
+  <ul class="task-list" id="task-list"></ul>
   <h2>Archived</h2>
   <ul class="task-list" id="archived-list"></ul>
   <script>
@@ -316,29 +313,31 @@ _UI_HTML = """\
         fetch('/v1/todo', {headers: H}),
         fetch('/v1/todo/archived', {headers: H}),
       ]);
-      const visible = await visR.json();
+      const visible  = await visR.json();
       const archived = await archR.json();
-      const active = visible.filter(t => t.status === 'active');
-      const done   = visible.filter(t => t.status === 'done');
-      renderActive(active);
-      renderSimple(document.getElementById('done-list'), done, doneRow);
-      renderSimple(document.getElementById('archived-list'), archived, archivedRow);
+      renderMain(visible);
+      renderArchived(archived);
     }
 
     function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-    function renderActive(tasks) {
-      const list = document.getElementById('active-list');
+    function renderMain(tasks) {
+      const list = document.getElementById('task-list');
       list.innerHTML = '';
       tasks.forEach(t => {
+        const isDone = t.status === 'done';
         const li = document.createElement('li');
         li.className = 'task-item';
         li.draggable = true;
         li.dataset.id = t.id;
+        const titleCls = isDone ? 'task-title done' : 'task-title';
+        const actionBtn = isDone
+          ? '<button class="btn btn-undone"  onclick="act(\\'' + t.id + '\\',\\'undone\\')">Undone</button>'
+          : '<button class="btn btn-done"    onclick="act(\\'' + t.id + '\\',\\'done\\')">Done</button>';
         li.innerHTML =
           '<span class="drag-handle">⣿</span>' +
-          '<span class="task-title">' + esc(t.title) + '</span>' +
-          '<button class="btn btn-done"    onclick="act(\\'' + t.id + '\\',\\'done\\')">Done</button>' +
+          '<span class="' + titleCls + '">' + esc(t.title) + '</span>' +
+          actionBtn +
           '<button class="btn btn-archive" onclick="act(\\'' + t.id + '\\',\\'archive\\')">Archive</button>' +
           '<button class="btn btn-del"     onclick="del(\\'' + t.id + '\\')">Delete</button>';
         li.addEventListener('dragstart', () => { dragSrc = li; li.classList.add('dragging'); });
@@ -358,25 +357,16 @@ _UI_HTML = """\
       });
     }
 
-    function doneRow(t) {
-      return '<span class="task-title done">' + esc(t.title) + '</span>' +
-             '<button class="btn btn-undone"  onclick="act(\\'' + t.id + '\\',\\'undone\\')">Undone</button>' +
-             '<button class="btn btn-archive" onclick="act(\\'' + t.id + '\\',\\'archive\\')">Archive</button>' +
-             '<button class="btn btn-del"     onclick="del(\\'' + t.id + '\\')">Delete</button>';
-    }
-
-    function archivedRow(t) {
-      return '<span class="task-title done">' + esc(t.title) + '</span>' +
-             '<button class="btn btn-unarchive" onclick="act(\\'' + t.id + '\\',\\'undone\\')">Restore</button>' +
-             '<button class="btn btn-del"       onclick="del(\\'' + t.id + '\\')">Delete</button>';
-    }
-
-    function renderSimple(list, tasks, rowFn) {
+    function renderArchived(tasks) {
+      const list = document.getElementById('archived-list');
       list.innerHTML = '';
       tasks.forEach(t => {
         const li = document.createElement('li');
         li.className = 'task-item';
-        li.innerHTML = rowFn(t);
+        li.innerHTML =
+          '<span class="task-title done">' + esc(t.title) + '</span>' +
+          '<button class="btn btn-unarchive" onclick="act(\\'' + t.id + '\\',\\'undone\\')">Restore</button>' +
+          '<button class="btn btn-del"       onclick="del(\\'' + t.id + '\\')">Delete</button>';
         list.appendChild(li);
       });
     }
