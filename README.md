@@ -86,6 +86,7 @@ Edit `server/rtsp_config.json`:
 
 - `url`: RTSP stream URL (`rtsp://...`) or an absolute path to a local video file — local files loop automatically
 - `mode`: `"fill"` = center-crop to circle; `"fit"` = letterbox; `"stretch"` = stretch to fill (ignores aspect ratio); use `"stretch"` for pre-sized 240×240 files
+- `show_overlay`: render the label and dots indicator onto the frame (default `true`); set to `false` to skip all overlay compositing for a stream
 - `apply_resize`: resize/crop the frame to 240×240 (default `true`); set to `false` for pre-converted 240×240 videos to skip the resize step entirely
 - `apply_mask`: apply a circular black mask to the frame (default `true`); set to `false` for pre-converted videos or when the display's physical round clip is sufficient
 - `grab_interval_s`: server-side frame encode rate in seconds (`0` = encode every decoded frame, `0.1` = ~10 fps cap)

@@ -219,6 +219,7 @@ class StreamConfig:
     grab_interval: float
     apply_mask: bool = True
     apply_resize: bool = True
+    show_overlay: bool = True
 
 
 @dataclass
@@ -252,6 +253,7 @@ def load_config() -> RtspConfig:
             grab_interval=float(s.get("grab_interval_s", 0.0)),
             apply_mask=bool(s.get("apply_mask", True)),
             apply_resize=bool(s.get("apply_resize", True)),
+            show_overlay=bool(s.get("show_overlay", True)),
         )
         for i, s in enumerate(data.get("streams", []))
     ]
@@ -322,7 +324,7 @@ async def get_rtsp_frame(index: int = Query(0, ge=0)):
                 idle_timeout=config.idle_timeout,
                 grab_interval=stream_cfg.grab_interval,
                 label=stream_cfg.label,
-                overlay=config.overlay,
+                overlay=config.overlay if stream_cfg.show_overlay else None,
                 index=index,
                 total=len(config.streams),
                 apply_mask=stream_cfg.apply_mask,
