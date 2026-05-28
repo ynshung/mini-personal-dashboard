@@ -6,7 +6,8 @@ A personal dashboard running on an ESP32 with a 240×240 round GC9A01 display. S
 
 ## Disclaimer
 
-This is a personal project which is heavily developed using Claude Code. Please be aware that it may contain bugs or vulnerabilities, and there may be new breaking changes at any time. Use at your own risk, and feel free to review or fork the code to suit it for yourself.
+> [!CAUTION]
+> This is a personal project which is heavily developed using Claude Code. Please be aware that it may contain bugs or vulnerabilities, and there may be new breaking changes at any time. Use at your own risk, and feel free to review or fork the code to suit it for yourself.
 
 ## Features
 
@@ -36,7 +37,10 @@ DEVELOPMENT_MODE=false
 - `SERVER_URL` — base URL of the server (e.g. `http://192.168.1.100:7333`), used by the ESP32
 - `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` — from your [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
 - `WIFI_SSID` / `WIFI_PASSWORD` — for the ESP32 to connect to your network
-- `DEVELOPMENT_MODE` — set to `true` to skip API key checks (for local development only, default `false`)
+- `DEVELOPMENT_MODE` — set to `true` to skip API key checks (default `false`)
+
+> [!WARNING]
+> Never set `DEVELOPMENT_MODE=true` in production — it disables all API key authentication.
 
 ### 2. Install & run the server
 
@@ -97,15 +101,17 @@ Edit `server/rtsp_config.json`:
   - `label_y`: top edge of the label text in pixels (default `16`)
   - `dots_y`: center y of the dots indicator in pixels (default `218`)
 
-This file is gitignored (may contain credentials in URLs).
+> [!NOTE]
+> This file is gitignored as it may contain credentials in RTSP URLs.
 
-**Tip:** For looping ambient video, pre-convert to 240×240 MJPEG for best performance:
-```bash
-ffmpeg -i input.mp4 \
-  -vf "scale=240:240:force_original_aspect_ratio=increase:flags=lanczos,crop=240:240" \
-  -c:v mjpeg -q:v 5 -an \
-  ambient.mjpeg
-```
+> [!TIP]
+> For looping ambient video, pre-convert to 240×240 MJPEG for best performance:
+> ```bash
+> ffmpeg -i input.mp4 \
+>   -vf "scale=240:240:force_original_aspect_ratio=increase:flags=lanczos,crop=240:240" \
+>   -c:v mjpeg -q:v 5 -an \
+>   ambient.mjpeg
+> ```
 
 ### 4. Authorize Spotify
 
@@ -204,7 +210,9 @@ The display has four screens cycled by GPIO 21.
 
 - Python 3.12+
 - [uv](https://github.com/astral-sh/uv)
-- macOS — required for the CC Usage feature (reads Claude Code OAuth token from the macOS Keychain) (Pretty sure can be used in Linux with from .claude dir)
+
+> [!IMPORTANT]
+> The CC Usage feature requires macOS — it reads the Claude Code OAuth token from the macOS Keychain. All other features should work on Linux.
 
 ### Setup & Run
 
@@ -275,7 +283,10 @@ Returns a black circular placeholder JPEG while the grabber is starting up (befo
 
 Returns Claude Code plan usage for the current 5-hour session window.
 
-The token is read automatically from the macOS Keychain (`Claude Code-credentials`). If the token is expired, re-login via Claude Code.
+The token is read automatically from the macOS Keychain (`Claude Code-credentials`).
+
+> [!NOTE]
+> If the token is expired, re-login via Claude Code to refresh it.
 
 **Response**
 
