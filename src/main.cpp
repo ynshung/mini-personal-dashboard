@@ -31,7 +31,8 @@ const uint16_t COL_BAR_FILL  = 0xE71C; // white at 90% opacity on black
 const uint16_t COL_BAR_PLAY  = 0x1CC4; // Spotify green #1DB954 in RGB565
 const uint16_t COL_BAR_ERROR = 0xF583; // orange #fab219
 const uint16_t COL_RED       = 0xC9E7; // muted red #d03b3b
-const unsigned long CC_POLL_INTERVAL_MS = 10000;
+const unsigned long CC_POLL_INTERVAL_MS   = 10000;
+const unsigned long TODO_POLL_INTERVAL_MS = 10000;
 const unsigned long IDLE_TIMEOUT_MS    = 2UL * 60UL * 1000UL; // 2 minutes
 
 enum Screen { CLOCK, SPOTIFY, CC_USAGE, RTSP, TODO };
@@ -88,6 +89,7 @@ static TaskHandle_t      rtspNetTaskHandle   = nullptr;
 static volatile bool     rtspFetchError      = false;
 static bool              rtspErrorShown      = false;
 int todoSelectedIndex = 0;
+unsigned long lastTodoPoll = 0;
 
 // --- Display ---
 
@@ -730,6 +732,7 @@ void activateScreen(Screen s) {
         todoSelectedIndex = 0;
         drawStatus("Loading...");
         fetchTodoImage();
+        lastTodoPoll = millis();
     }
 }
 
@@ -858,6 +861,12 @@ void loop() {
             lastCCPoll = now;
             if (WiFi.status() == WL_CONNECTED)
                 fetchCCUsage();
+        }
+    } else if (activeScreen == TODO) {
+        if (now - lastTodoPoll >= TODO_POLL_INTERVAL_MS) {
+            lastTodoPoll = now;
+            if (WiFi.status() == WL_CONNECTED)
+                fetchTodoImage();
         }
     } else if (activeScreen == RTSP) {
         if (xSemaphoreTake(rtspReadySem, 0) == pdTRUE) {
