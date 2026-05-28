@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)-9s %(name)s - %(mes
 
 app = FastAPI()
 
-OPEN_PATHS = {"/v1/spotify/auth", "/v1/spotify/callback", "/v1/todo/ui"}
+OPEN_PATHS = {"/v1/spotify/auth", "/v1/spotify/callback", "/v1/todo/ui", "/v1/todo/events"}
 
 
 @app.middleware("http")
@@ -24,7 +24,7 @@ async def verify_api_key(request: Request, call_next):
         return await call_next(request)
     if request.url.path not in OPEN_PATHS:
         expected = os.getenv("API_KEY")
-        key = request.headers.get("X-API-Key")
+        key = request.headers.get("X-API-Key") or request.query_params.get("api_key")
         if not expected or key != expected:
             return JSONResponse(status_code=401, content={"detail": "Invalid API key"})
     return await call_next(request)

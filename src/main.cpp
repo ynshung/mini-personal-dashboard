@@ -508,12 +508,16 @@ void fetchTodoImage() {
     if (code != 200) {
         Serial.printf("Todo image HTTP error: %d\n", code);
         http.end();
-        return;  // non-critical: don't set serverUnreachableSince, no clock fallback
+        if (serverUnreachableSince == 0) serverUnreachableSince = millis();
+        if (!pollFailed) { pollFailed = true; drawStatus("Server unreachable"); }
+        return;
     }
     int contentLength = http.getSize();
     if (contentLength <= 0 || contentLength > 65536) {
         Serial.printf("Todo image unexpected size: %d\n", contentLength);
         http.end();
+        if (serverUnreachableSince == 0) serverUnreachableSince = millis();
+        if (!pollFailed) { pollFailed = true; drawStatus("Server unreachable"); }
         return;
     }
     uint8_t *buf = (uint8_t *)malloc(contentLength);
@@ -532,14 +536,17 @@ void fetchTodoImage() {
     }
     http.end();
     if (received == contentLength) {
+        pollFailed = false;
+        serverUnreachableSince = 0;
         tft.startWrite();
         tft.setSwapBytes(true);
         TJpgDec.drawJpg(0, 0, buf, contentLength);
         tft.setSwapBytes(false);
         tft.endWrite();
-        serverUnreachableSince = 0;
     } else {
         Serial.printf("Todo incomplete: %d/%d\n", received, contentLength);
+        if (serverUnreachableSince == 0) serverUnreachableSince = millis();
+        if (!pollFailed) { pollFailed = true; drawStatus("Server unreachable"); }
     }
     free(buf);
 }
@@ -553,7 +560,6 @@ void sendTodoAction(const char* action) {
     int code = http.sendRequest("PATCH", "");
     http.end();
     if (code == 200) {
-        todoSelectedIndex = 0;
         fetchTodoImage();
     } else {
         Serial.printf("Todo action HTTP error: %d\n", code);

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import uuid
@@ -6,8 +7,8 @@ from io import BytesIO
 from pathlib import Path
 from threading import Lock
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import Response
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import Response, StreamingResponse
 from PIL import Image, ImageDraw, ImageFont
 from pydantic import BaseModel
 
@@ -171,6 +172,26 @@ def delete_task(task_id: str):
     return {"ok": True}
 
 
+# --- SSE change feed ---
+
+@router.get("/todo/events")
+async def todo_events(request: Request):
+    async def generator():
+        last_mtime = TODOS_FILE.stat().st_mtime if TODOS_FILE.exists() else 0
+        yield "data: connected\n\n"
+        while True:
+            if await request.is_disconnected():
+                break
+            await asyncio.sleep(1)
+            mtime = TODOS_FILE.stat().st_mtime if TODOS_FILE.exists() else 0
+            if mtime != last_mtime:
+                last_mtime = mtime
+                yield "data: changed\n\n"
+
+    return StreamingResponse(generator(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 # --- Image rendering ---
 
 IMG_SIZE = 240
@@ -280,18 +301,23 @@ _UI_HTML = """\
     input[type=text]:focus{outline:none;border-color:#555}
     .btn{padding:7px 12px;border-radius:8px;border:none;cursor:pointer;font-size:.8rem;font-weight:600}
     .btn-add{padding:9px 14px;font-size:.85rem;background:#1a73e8;color:#fff}
+    .btn-archive{background:#37474f;color:#ccc}
+    .btn-del{background:#7f0000;color:#fff}
     .task-list{list-style:none}
-    .task-item{display:flex;align-items:center;gap:8px;padding:9px 6px;border-bottom:1px solid #1e1e1e}
+    .task-item{position:relative;display:flex;align-items:center;gap:8px;padding:9px 6px;border-bottom:1px solid #1e1e1e}
     .task-item.dragging{opacity:.35}
     .task-item.drag-over{border-top:2px solid #1a73e8}
     .drag-handle{color:#333;cursor:grab;font-size:1rem;user-select:none;padding:0 2px}
+    .checkbox{width:18px;height:18px;min-width:18px;border:2px solid #555;border-radius:3px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:.7rem;color:#fff}
+    .checkbox.checked{background:#2e7d32;border-color:#2e7d32}
     .task-title{flex:1;font-size:.95rem}
     .task-title.done{text-decoration:line-through;color:#555}
-    .btn-done{background:#2e7d32;color:#fff}
-    .btn-undone{background:#1565c0;color:#fff}
-    .btn-archive{background:#37474f;color:#ccc}
-    .btn-unarchive{background:#37474f;color:#ccc}
-    .btn-del{background:#7f0000;color:#fff}
+    .menu-wrap{position:relative}
+    .kebab-btn{background:none;border:none;color:#555;font-size:1.2rem;padding:0 4px;line-height:1;cursor:pointer;opacity:0;transition:opacity .15s}
+    .task-item:hover .kebab-btn{opacity:1}
+    .actions{position:absolute;right:0;top:100%;z-index:10;background:#1e1e1e;border:1px solid #333;border-radius:8px;padding:4px;display:none;flex-direction:column;gap:4px;min-width:110px;box-shadow:0 4px 12px #0008}
+    .actions .btn{text-align:left;border-radius:6px}
+    .menu-wrap:hover .actions{display:flex}
   </style>
 </head>
 <body>
@@ -330,16 +356,17 @@ _UI_HTML = """\
         li.className = 'task-item';
         li.draggable = true;
         li.dataset.id = t.id;
-        const titleCls = isDone ? 'task-title done' : 'task-title';
-        const actionBtn = isDone
-          ? '<button class="btn btn-undone"  onclick="act(\\'' + t.id + '\\',\\'undone\\')">Undone</button>'
-          : '<button class="btn btn-done"    onclick="act(\\'' + t.id + '\\',\\'done\\')">Done</button>';
         li.innerHTML =
           '<span class="drag-handle">⣿</span>' +
-          '<span class="' + titleCls + '">' + esc(t.title) + '</span>' +
-          actionBtn +
-          '<button class="btn btn-archive" onclick="act(\\'' + t.id + '\\',\\'archive\\')">Archive</button>' +
-          '<button class="btn btn-del"     onclick="del(\\'' + t.id + '\\')">Delete</button>';
+          '<span class="checkbox' + (isDone ? ' checked' : '') + '" onclick="toggle(\\'' + t.id + '\\',' + isDone + ')">' + (isDone ? '✓' : '') + '</span>' +
+          '<span class="task-title' + (isDone ? ' done' : '') + '">' + esc(t.title) + '</span>' +
+          '<div class="menu-wrap">' +
+            '<button class="kebab-btn">⋮</button>' +
+            '<div class="actions">' +
+              '<button class="btn btn-archive" onclick="act(\\'' + t.id + '\\',\\'archive\\')">Archive</button>' +
+              '<button class="btn btn-del"     onclick="del(\\'' + t.id + '\\')">Delete</button>' +
+            '</div>' +
+          '</div>';
         li.addEventListener('dragstart', () => { dragSrc = li; li.classList.add('dragging'); });
         li.addEventListener('dragend',   () => { li.classList.remove('dragging'); dragSrc = null; });
         li.addEventListener('dragover',  e => { e.preventDefault(); li.classList.add('drag-over'); });
@@ -365,10 +392,19 @@ _UI_HTML = """\
         li.className = 'task-item';
         li.innerHTML =
           '<span class="task-title done">' + esc(t.title) + '</span>' +
-          '<button class="btn btn-unarchive" onclick="act(\\'' + t.id + '\\',\\'undone\\')">Restore</button>' +
-          '<button class="btn btn-del"       onclick="del(\\'' + t.id + '\\')">Delete</button>';
+          '<div class="menu-wrap">' +
+            '<button class="kebab-btn">⋮</button>' +
+            '<div class="actions">' +
+              '<button class="btn btn-archive" onclick="act(\\'' + t.id + '\\',\\'undone\\')">Restore</button>' +
+              '<button class="btn btn-del"     onclick="del(\\'' + t.id + '\\')">Delete</button>' +
+            '</div>' +
+          '</div>';
         list.appendChild(li);
       });
+    }
+
+    function toggle(id, isDone) {
+      act(id, isDone ? 'undone' : 'done');
     }
 
     async function addTask() {
@@ -390,6 +426,9 @@ _UI_HTML = """\
 
     document.getElementById('new-task').addEventListener('keydown', e => { if (e.key==='Enter') addTask(); });
     load();
+
+    const es = new EventSource('/v1/todo/events');
+    es.onmessage = e => { if (e.data === 'changed') load(); };
   </script>
 </body>
 </html>
@@ -398,6 +437,4 @@ _UI_HTML = """\
 
 @router.get("/todo/ui", response_class=Response)
 def todo_ui():
-    api_key = os.getenv("API_KEY", "")
-    html = _UI_HTML.replace("__API_KEY__", api_key)
-    return Response(content=html, media_type="text/html")
+    return Response(content=_UI_HTML, media_type="text/html")
