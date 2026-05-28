@@ -781,22 +781,22 @@ void setup() {
         sendCommand("/v1/spotify/previous");
     });
     btn2.attachClick([]() {
-        // Forward cycle: CLOCK -> CC_USAGE -> RTSP -> SPOTIFY -> TODO -> CLOCK
+        // Forward cycle: CLOCK -> TODO -> CC_USAGE -> RTSP -> SPOTIFY -> CLOCK
         Screen next;
-        if      (activeScreen == CLOCK)    next = CC_USAGE;
+        if      (activeScreen == CLOCK)    next = TODO;
+        else if (activeScreen == TODO)     next = CC_USAGE;
         else if (activeScreen == CC_USAGE) next = RTSP;
         else if (activeScreen == RTSP)     next = SPOTIFY;
-        else if (activeScreen == SPOTIFY)  next = TODO;
         else                               next = CLOCK;
         activateScreen(next);
     });
     btn2.attachDoubleClick([]() {
-        // Backward cycle: CLOCK -> TODO -> SPOTIFY -> RTSP -> CC_USAGE -> CLOCK
+        // Backward cycle: CLOCK -> SPOTIFY -> RTSP -> CC_USAGE -> TODO -> CLOCK
         Screen target;
-        if      (activeScreen == CLOCK)    target = TODO;
-        else if (activeScreen == TODO)     target = SPOTIFY;
+        if      (activeScreen == CLOCK)    target = SPOTIFY;
         else if (activeScreen == SPOTIFY)  target = RTSP;
         else if (activeScreen == RTSP)     target = CC_USAGE;
+        else if (activeScreen == CC_USAGE) target = TODO;
         else                               target = CLOCK;
         activateScreen(target);
     });
