@@ -202,14 +202,12 @@ COL_GREY = (136, 136, 136)
 COL_BLACK = (0, 0, 0)
 
 ROW_HEIGHT = 28
-ROWS_VISIBLE = 6
+ROWS_VISIBLE = 5
 CHECKBOX_SIZE = 11
 CHECKBOX_X = 28
 TEXT_X = 46
 TEXT_MAX_W = 164
-LABEL_Y = 28
-TASKS_START_Y = 52
-COUNTER_Y = 224
+TASKS_START_Y = 64
 
 
 def _truncate(draw: ImageDraw.ImageDraw, text: str, font, max_w: int) -> str:
@@ -243,8 +241,6 @@ def _render_todo_jpeg(selected: int) -> bytes:
         start = max(0, min(selected - 2, total - ROWS_VISIBLE))
         window = visible[start: start + ROWS_VISIBLE]
 
-        draw.text((IMG_SIZE // 2, LABEL_Y), "TODO", fill=COL_GREY,
-                  font=FONT_LABEL, anchor="mm")
 
         for i, task in enumerate(window):
             abs_idx = start + i
@@ -258,9 +254,6 @@ def _render_todo_jpeg(selected: int) -> bytes:
             title = _truncate(draw, task["title"], FONT_TASK, TEXT_MAX_W)
             draw.text((TEXT_X, cy), title, fill=col, font=FONT_TASK, anchor="lm")
 
-        counter = f"{selected + 1} / {total} tasks"
-        draw.text((IMG_SIZE // 2, COUNTER_Y), counter, fill=COL_GREY,
-                  font=FONT_LABEL, anchor="mm")
 
     cx, cy_center = IMG_SIZE // 2, IMG_SIZE // 2
     mask = Image.new("L", (IMG_SIZE, IMG_SIZE), 0)

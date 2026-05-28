@@ -71,9 +71,11 @@ Hardware: GC9A01 240×240 round TFT, driven via SPI.
   - Spotify screen: single click → toggle play/pause, double click → next track, long press → previous track
   - RTSP screen: single click → next stream (`rtspIndex++`), double click → previous stream, long press → no-op
   - Clock screen: all gestures → no-op
+- GPIO 19, active-high, no internal pull-up
+  - TODO screen: single click → toggle done/undone on selected task (`todoSelectedIndex`), double click → navigate to next task, long press → no-op
 - GPIO 21, active-high, no internal pull-up
-  - Single click → cycle forward: `CLOCK → CC_USAGE → RTSP → SPOTIFY → CLOCK` (via `activateScreen()`)
-  - Double click → cycle backward: `CLOCK → SPOTIFY → RTSP → CC_USAGE → CLOCK`
+  - Single click → cycle forward: `CLOCK → TODO → CC_USAGE → RTSP → SPOTIFY → CLOCK` (via `activateScreen()`)
+  - Double click → cycle backward: `CLOCK → SPOTIFY → RTSP → CC_USAGE → TODO → CLOCK`
   - Long press → `ESP.restart()`
 
 **Screens (`src/main.cpp`):**
@@ -81,6 +83,7 @@ Hardware: GC9A01 240×240 round TFT, driven via SPI.
 - `CC_USAGE`: polls `/v1/cc-usage` every 10 s; renders Claude logo (`include/claude_logo.h`, RGB565 bitmap stored byte-swapped for TFT_eSPI), 5-HR and 7-DAY utilization blocks, and a "last refreshed" label at the bottom; color thresholds 0–60% white, 61–99% orange, 100% red; `-1` sentinel means null (plan doesn't have that window); server caches upstream response for 2 min and includes `refreshed_ago` string in every response; each usage bar has a small white downward triangle above it marking `time_pct` (percentage of the billing window elapsed, computed server-side from `resets_at`)
 - `RTSP`: dual-core pipeline — `rtspNetTask` (Core 0) fetches `/v1/rtsp/frame?index=rtspIndex` continuously using ping-pong double buffers (`rtspBuf[2][32768]`) and `rtspFreeSem`/`rtspReadySem` counting semaphores; `loop()` (Core 1) renders each frame via TJpgDec as soon as it arrives; overlay (label + dots) composited server-side into the JPEG; `rtspStreamCount` tracked from `X-Stream-Count` header; stream index persists across screen switches; task suspended when not on RTSP screen
 - `SPOTIFY`: polls `/v1/spotify/now-playing` every 5 s, renders album art, progress bar
+- `TODO`: polls `/v1/todo/image?selected=todoSelectedIndex` every 10 s (`TODO_POLL_INTERVAL_MS`); server renders a 240×240 JPEG with 5 tasks visible (rows at y=64–176, centered in circle), checkboxes, and highlighted selected row; `todoSelectedIndex` persists across polls, resets to 0 on screen activation; GPIO 19 single click sends `PATCH /v1/todo/action?selected=N&action=done` to toggle done/undone, double click increments `todoSelectedIndex`; uses same `serverUnreachableSince`/`pollFailed`/clock-fallback pattern as other screens
 - On screen switch: `activateScreen(s)` clears `serverUnreachableSince`, `pollFailed`, runs per-screen init (fetch + draw); screens poll independently
 
 **Polling & rendering:**
@@ -89,6 +92,13 @@ Hardware: GC9A01 240×240 round TFT, driven via SPI.
 - API poll every 5 s (`POLL_INTERVAL_MS`); also polls immediately when estimated progress reaches song duration
 - Local tick every 1s (`TICK_INTERVAL_MS`) interpolates progress bar only
 - `/v1/rtsp/frame?index=N` returns 240×240 JPEG with circular mask; fetched continuously by Core 0 (`rtspNetTask`); `X-Stream-Count` response header updates `rtspStreamCount` for button cycling
+- `/v1/todo/image?selected=N` returns 240×240 JPEG; 5 tasks visible, selected row highlighted white, others dimmed; circular mask radius 110 px; polled every 10 s
+
+**TODO server (`server/routes/todo.py`):**
+- Tasks stored in `server/todos.json` (gitignored) as `{"tasks": [{"id", "title", "status", "created_at"}]}`; `status` is `"active"`, `"done"`, or `"archived"`
+- Web UI at `/v1/todo/ui` (no auth required): add tasks, toggle done via checkbox, archive/delete via hover kebab menu, drag-to-reorder active tasks; auto-updates via SSE
+- SSE feed at `/v1/todo/events` (no auth required): polls `todos.json` mtime every 1 s, emits `data: changed` on modification; web UI listens with `EventSource` and reloads on change
+- `PATCH /v1/todo/action?selected=N&action=done|archive` — used by ESP32; operates on visible tasks (active+done) by index
 
 **RTSP server pipeline (`server/routes/rtsp.py`):**
 - Config loaded from `server/rtsp_config.json` (gitignored; copy from `.example`): array of streams with `url`, `label`, `mode` (`"fill"` or `"fit"`), `grab_interval_s`; top-level `idle_timeout_s`; optional `overlay` object (`show_label`, `show_dots`, `label_y`, `dots_y`) — omitting `overlay` disables all overlay rendering

@@ -10,11 +10,11 @@ This is a personal project which is heavily developed using Claude Code. Please 
 
 ## Features
 
-- **Clock** — always-on NTP-synced digital clock (weekday, date, time); initial startup screen; falls back to clock when server is unreachable and auto-restores when it comes back
+- **Clock** — always-on NTP-synced analog clock; initial startup screen; falls back to clock when server is unreachable
+- **Todo List** — task list with done/undone toggle, managed via a web UI accessible on your local network
 - **Spotify Player** — now-playing display with playback controls (play/pause, next, previous)
 - **Claude Usage Monitor** — real-time Claude Code plan usage (5-hour session and 7-day windows), with reset timers and expected usage indicators
 - **RTSP Camera Viewer** — live camera feed display with multi-stream support; server proxies H.264 RTSP streams as JPEG snapshots
-- **RevenueCat Dashboard** *(TODO)* — subscription revenue metrics
 
 ## Get Started
 
@@ -135,11 +135,11 @@ Board: ESP32 (`esp32dev`), framework: Arduino. Source in `src/main.cpp`.
 
 | GPIO | Gesture | Action |
 |---|---|---|
-| 19 | Single click | Toggle play/pause (Spotify) / Next stream (RTSP) / No-op (Clock) |
-| 19 | Double click | Next track (Spotify) / Previous stream (RTSP) / No-op (Clock) |
-| 19 | Long press | Previous track (Spotify) / No-op (RTSP, Clock) |
-| 21 | Single click | Cycle screens forward: Clock → CC Usage → RTSP → Spotify → … |
-| 21 | Double click | Cycle screens backward: Clock → Spotify → RTSP → CC Usage → … |
+| 19 | Single click | Toggle play/pause (Spotify) / Next stream (RTSP) / Toggle done on selected task (Todo) / No-op (Clock, CC Usage) |
+| 19 | Double click | Next track (Spotify) / Previous stream (RTSP) / Next task (Todo) / No-op (Clock, CC Usage) |
+| 19 | Long press | Previous track (Spotify) / No-op (others) |
+| 21 | Single click | Cycle screens forward: Clock → Todo → CC Usage → RTSP → Spotify → … |
+| 21 | Double click | Cycle screens backward: Clock → Spotify → RTSP → CC Usage → Todo → … |
 | 21 | Long press | Restart device |
 
 ### Display UI
@@ -153,6 +153,14 @@ The display has four screens cycled by GPIO 21.
 - **Time** — `HH:MM:SS` (white)
 - **Server fallback** — automatically switches to this screen after 2 minutes of server unreachability and stays there permanently
 - Timezone configured via `NTP_OFFSET_HOURS` in `src/main.cpp` (default `8.0f` = UTC+8; supports fractional offsets e.g. `-5.5`)
+
+**Todo screen** — polls `/v1/todo/image` every 10 seconds:
+
+- **Task list** — up to 5 tasks visible at once, centered within the circular display; selected task highlighted white, others dimmed
+- **Checkboxes** — filled when task is done
+- **Navigation** — double click GPIO 19 to move selection down; wraps at end of list
+- **Toggle done** — single click GPIO 19 marks the selected task done or undone
+- **Web UI** — manage tasks at `http://<server-ip>:7333/v1/todo/ui` from any browser on the local network; supports adding, reordering (drag), archiving, and deleting tasks; updates live via SSE
 
 **Spotify screen** — polls `/v1/spotify/now-playing` every 5 seconds:
 
@@ -222,6 +230,75 @@ DEVELOPMENT_MODE=false
 ---
 
 ## Endpoints
+
+### `GET /v1/todo/ui`
+
+Opens the todo web UI in a browser. No API key required. Manage tasks with add, done/undone toggle (checkbox), archive, delete, and drag-to-reorder. The page auto-updates in real time via SSE whenever `todos.json` changes.
+
+---
+
+### `GET /v1/todo`
+
+Returns all active and done (non-archived) tasks.
+
+**Response:** JSON array of task objects `[{"id", "title", "status", "created_at"}, ...]`
+
+---
+
+### `POST /v1/todo`
+
+Creates a new task.
+
+**Request body:** `{"title": "task title"}`
+
+**Response (201):** The created task object.
+
+---
+
+### `PATCH /v1/todo/action?selected=N&action=done|archive`
+
+Operates on the visible task list (active + done) by zero-based index. Used by the ESP32 to toggle done/undone or archive a task.
+
+| Parameter | Description |
+|---|---|
+| `selected` | Zero-based index into the visible task list (default `0`) |
+| `action` | `"done"` toggles done↔active; `"archive"` moves to archived |
+
+---
+
+### `PATCH /v1/todo/reorder`
+
+Reorders tasks. **Request body:** `{"ids": ["id1", "id2", ...]}`
+
+---
+
+### `PATCH /v1/todo/{task_id}/done` / `undone` / `archive`
+
+Sets a specific task's status directly by ID.
+
+---
+
+### `DELETE /v1/todo/{task_id}`
+
+Permanently deletes a task.
+
+---
+
+### `GET /v1/todo/image?selected=N`
+
+Returns the todo list as a 240×240 JPEG for the ESP32 display. Shows 5 tasks centered within the circular display, with the selected task (index `N`) highlighted.
+
+**Response:** `image/jpeg`
+
+---
+
+### `GET /v1/todo/events`
+
+SSE stream that emits `data: changed` whenever `todos.json` is modified. No API key required. Used by the web UI for live updates.
+
+**Response:** `text/event-stream`
+
+---
 
 ### `GET /v1/rtsp/frame?index=N`
 
