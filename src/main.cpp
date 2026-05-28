@@ -31,10 +31,11 @@ const uint16_t COL_BAR_FILL  = 0xE71C; // white at 90% opacity on black
 const uint16_t COL_BAR_PLAY  = 0x1CC4; // Spotify green #1DB954 in RGB565
 const uint16_t COL_BAR_ERROR = 0xF583; // orange #fab219
 const uint16_t COL_RED       = 0xC9E7; // muted red #d03b3b
-const unsigned long CC_POLL_INTERVAL_MS = 10000;
+const unsigned long CC_POLL_INTERVAL_MS   = 10000;
+const unsigned long TODO_POLL_INTERVAL_MS = 10000;
 const unsigned long IDLE_TIMEOUT_MS    = 2UL * 60UL * 1000UL; // 2 minutes
 
-enum Screen { CLOCK, SPOTIFY, CC_USAGE, RTSP };
+enum Screen { CLOCK, SPOTIFY, CC_USAGE, RTSP, TODO };
 Screen activeScreen = CLOCK;
 unsigned long serverUnreachableSince = 0;
 unsigned long lastClockTick = 0;
@@ -87,6 +88,8 @@ static SemaphoreHandle_t rtspReadySem        = nullptr;
 static TaskHandle_t      rtspNetTaskHandle   = nullptr;
 static volatile bool     rtspFetchError      = false;
 static bool              rtspErrorShown      = false;
+int todoSelectedIndex = 0;
+unsigned long lastTodoPoll = 0;
 
 // --- Display ---
 
@@ -495,6 +498,75 @@ void sendCommand(const char* path) {
     http.end();
 }
 
+void fetchTodoImage() {
+    if (WiFi.status() != WL_CONNECTED) return;
+    HTTPClient http;
+    String url = String(serverUrl) + "/v1/todo/image?selected=" + todoSelectedIndex;
+    http.begin(url);
+    http.addHeader("X-API-Key", apiKey);
+    int code = http.GET();
+    if (code != 200) {
+        Serial.printf("Todo image HTTP error: %d\n", code);
+        http.end();
+        if (serverUnreachableSince == 0) serverUnreachableSince = millis();
+        if (!pollFailed) { pollFailed = true; drawStatus("Server unreachable"); }
+        return;
+    }
+    int contentLength = http.getSize();
+    if (contentLength <= 0 || contentLength > 65536) {
+        Serial.printf("Todo image unexpected size: %d\n", contentLength);
+        http.end();
+        if (serverUnreachableSince == 0) serverUnreachableSince = millis();
+        if (!pollFailed) { pollFailed = true; drawStatus("Server unreachable"); }
+        return;
+    }
+    uint8_t *buf = (uint8_t *)malloc(contentLength);
+    if (!buf) { Serial.println("Todo malloc failed"); http.end(); return; }
+    WiFiClient *stream = http.getStreamPtr();
+    int received = 0;
+    while (received < contentLength && stream->connected()) {
+        int avail = stream->available();
+        if (avail > 0) {
+            int toRead = min(avail, contentLength - received);
+            stream->readBytes(buf + received, toRead);
+            received += toRead;
+        } else {
+            delay(1);
+        }
+    }
+    http.end();
+    if (received == contentLength) {
+        pollFailed = false;
+        serverUnreachableSince = 0;
+        tft.startWrite();
+        tft.setSwapBytes(true);
+        TJpgDec.drawJpg(0, 0, buf, contentLength);
+        tft.setSwapBytes(false);
+        tft.endWrite();
+    } else {
+        Serial.printf("Todo incomplete: %d/%d\n", received, contentLength);
+        if (serverUnreachableSince == 0) serverUnreachableSince = millis();
+        if (!pollFailed) { pollFailed = true; drawStatus("Server unreachable"); }
+    }
+    free(buf);
+}
+
+void sendTodoAction(const char* action) {
+    if (WiFi.status() != WL_CONNECTED) return;
+    HTTPClient http;
+    String url = String(serverUrl) + "/v1/todo/action?selected=" + todoSelectedIndex + "&action=" + action;
+    http.begin(url);
+    http.addHeader("X-API-Key", apiKey);
+    int code = http.sendRequest("PATCH", "");
+    http.end();
+    if (code == 200) {
+        fetchTodoImage();
+    } else {
+        Serial.printf("Todo action HTTP error: %d\n", code);
+        // non-critical: don't set serverUnreachableSince, no clock fallback
+    }
+}
+
 void fetchNowPlaying() {
     HTTPClient http;
     http.begin(String(serverUrl) + "/v1/spotify/now-playing");
@@ -662,6 +734,11 @@ void activateScreen(Screen s) {
         rtspErrorShown = false;
         drawStatus("Loading...");
         vTaskResume(rtspNetTaskHandle);
+    } else if (s == TODO) {
+        todoSelectedIndex = 0;
+        drawStatus("Loading...");
+        fetchTodoImage();
+        lastTodoPoll = millis();
     }
 }
 
@@ -684,6 +761,10 @@ void setup() {
             rtspIndex = (rtspIndex + 1) % rtspStreamCount;
             return;
         }
+        if (activeScreen == TODO) {
+            sendTodoAction("done");
+            return;
+        }
         sendCommand("/v1/spotify/toggle");
     });
     btn.attachDoubleClick([]() {
@@ -692,28 +773,39 @@ void setup() {
             rtspIndex = (rtspIndex - 1 + rtspStreamCount) % rtspStreamCount;
             return;
         }
+        if (activeScreen == TODO) {
+            todoSelectedIndex++;
+            fetchTodoImage();
+            return;
+        }
         sendCommand("/v1/spotify/next");
     });
     btn.attachLongPressStart([]() {
         if (activeScreen == CLOCK) return;
         if (activeScreen == RTSP) return;
+        if (activeScreen == TODO) {
+            sendTodoAction("archive");
+            return;
+        }
         sendCommand("/v1/spotify/previous");
     });
     btn2.attachClick([]() {
-        // Forward cycle: CLOCK -> CC_USAGE -> RTSP -> SPOTIFY -> CLOCK
+        // Forward cycle: CLOCK -> TODO -> CC_USAGE -> RTSP -> SPOTIFY -> CLOCK
         Screen next;
-        if      (activeScreen == CLOCK)    next = CC_USAGE;
+        if      (activeScreen == CLOCK)    next = TODO;
+        else if (activeScreen == TODO)     next = CC_USAGE;
         else if (activeScreen == CC_USAGE) next = RTSP;
         else if (activeScreen == RTSP)     next = SPOTIFY;
         else                               next = CLOCK;
         activateScreen(next);
     });
     btn2.attachDoubleClick([]() {
-        // Backward cycle: CLOCK -> SPOTIFY -> RTSP -> CC_USAGE -> CLOCK
+        // Backward cycle: CLOCK -> SPOTIFY -> RTSP -> CC_USAGE -> TODO -> CLOCK
         Screen target;
         if      (activeScreen == CLOCK)    target = SPOTIFY;
         else if (activeScreen == SPOTIFY)  target = RTSP;
         else if (activeScreen == RTSP)     target = CC_USAGE;
+        else if (activeScreen == CC_USAGE) target = TODO;
         else                               target = CLOCK;
         activateScreen(target);
     });
@@ -775,6 +867,12 @@ void loop() {
             lastCCPoll = now;
             if (WiFi.status() == WL_CONNECTED)
                 fetchCCUsage();
+        }
+    } else if (activeScreen == TODO) {
+        if (now - lastTodoPoll >= TODO_POLL_INTERVAL_MS) {
+            lastTodoPoll = now;
+            if (WiFi.status() == WL_CONNECTED)
+                fetchTodoImage();
         }
     } else if (activeScreen == RTSP) {
         if (xSemaphoreTake(rtspReadySem, 0) == pdTRUE) {

@@ -8,13 +8,14 @@ from fastapi.responses import JSONResponse
 from routes.cc_usage import router as cc_usage_router
 from routes.rtsp import router as rtsp_router
 from routes.spotify import router as spotify_router
+from routes.todo import router as todo_router
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(levelname)-9s %(name)s - %(message)s")
 
 app = FastAPI()
 
-OPEN_PATHS = {"/v1/spotify/auth", "/v1/spotify/callback"}
+OPEN_PATHS = {"/v1/spotify/auth", "/v1/spotify/callback", "/v1/todo/ui", "/v1/todo/events"}
 
 
 @app.middleware("http")
@@ -23,7 +24,7 @@ async def verify_api_key(request: Request, call_next):
         return await call_next(request)
     if request.url.path not in OPEN_PATHS:
         expected = os.getenv("API_KEY")
-        key = request.headers.get("X-API-Key")
+        key = request.headers.get("X-API-Key") or request.query_params.get("api_key")
         if not expected or key != expected:
             return JSONResponse(status_code=401, content={"detail": "Invalid API key"})
     return await call_next(request)
@@ -32,6 +33,7 @@ async def verify_api_key(request: Request, call_next):
 app.include_router(cc_usage_router, prefix="/v1")
 app.include_router(rtsp_router, prefix="/v1")
 app.include_router(spotify_router, prefix="/v1")
+app.include_router(todo_router, prefix="/v1")
 
 if __name__ == "__main__":
     import uvicorn
