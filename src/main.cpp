@@ -34,7 +34,7 @@ const uint16_t COL_RED       = 0xC9E7; // muted red #d03b3b
 const unsigned long CC_POLL_INTERVAL_MS = 10000;
 const unsigned long IDLE_TIMEOUT_MS    = 2UL * 60UL * 1000UL; // 2 minutes
 
-enum Screen { CLOCK, SPOTIFY, CC_USAGE, RTSP };
+enum Screen { CLOCK, SPOTIFY, CC_USAGE, RTSP, TODO };
 Screen activeScreen = CLOCK;
 unsigned long serverUnreachableSince = 0;
 unsigned long lastClockTick = 0;
@@ -87,6 +87,7 @@ static SemaphoreHandle_t rtspReadySem        = nullptr;
 static TaskHandle_t      rtspNetTaskHandle   = nullptr;
 static volatile bool     rtspFetchError      = false;
 static bool              rtspErrorShown      = false;
+int todoSelectedIndex = 0;
 
 // --- Display ---
 
@@ -495,6 +496,69 @@ void sendCommand(const char* path) {
     http.end();
 }
 
+void fetchTodoImage() {
+    if (WiFi.status() != WL_CONNECTED) return;
+    HTTPClient http;
+    String url = String(serverUrl) + "/v1/todo/image?selected=" + todoSelectedIndex;
+    http.begin(url);
+    http.addHeader("X-API-Key", apiKey);
+    int code = http.GET();
+    if (code != 200) {
+        Serial.printf("Todo image HTTP error: %d\n", code);
+        http.end();
+        return;  // non-critical: don't set serverUnreachableSince, no clock fallback
+    }
+    int contentLength = http.getSize();
+    if (contentLength <= 0 || contentLength > 65536) {
+        Serial.printf("Todo image unexpected size: %d\n", contentLength);
+        http.end();
+        return;
+    }
+    uint8_t *buf = (uint8_t *)malloc(contentLength);
+    if (!buf) { Serial.println("Todo malloc failed"); http.end(); return; }
+    WiFiClient *stream = http.getStreamPtr();
+    int received = 0;
+    while (received < contentLength && stream->connected()) {
+        int avail = stream->available();
+        if (avail > 0) {
+            int toRead = min(avail, contentLength - received);
+            stream->readBytes(buf + received, toRead);
+            received += toRead;
+        } else {
+            delay(1);
+        }
+    }
+    http.end();
+    if (received == contentLength) {
+        tft.startWrite();
+        tft.setSwapBytes(true);
+        TJpgDec.drawJpg(0, 0, buf, contentLength);
+        tft.setSwapBytes(false);
+        tft.endWrite();
+        serverUnreachableSince = 0;
+    } else {
+        Serial.printf("Todo incomplete: %d/%d\n", received, contentLength);
+    }
+    free(buf);
+}
+
+void sendTodoAction(const char* action) {
+    if (WiFi.status() != WL_CONNECTED) return;
+    HTTPClient http;
+    String url = String(serverUrl) + "/v1/todo/action?selected=" + todoSelectedIndex + "&action=" + action;
+    http.begin(url);
+    http.addHeader("X-API-Key", apiKey);
+    int code = http.sendRequest("PATCH", "");
+    http.end();
+    if (code == 200) {
+        todoSelectedIndex = 0;
+        fetchTodoImage();
+    } else {
+        Serial.printf("Todo action HTTP error: %d\n", code);
+        // non-critical: don't set serverUnreachableSince, no clock fallback
+    }
+}
+
 void fetchNowPlaying() {
     HTTPClient http;
     http.begin(String(serverUrl) + "/v1/spotify/now-playing");
@@ -662,6 +726,10 @@ void activateScreen(Screen s) {
         rtspErrorShown = false;
         drawStatus("Loading...");
         vTaskResume(rtspNetTaskHandle);
+    } else if (s == TODO) {
+        todoSelectedIndex = 0;
+        drawStatus("Loading...");
+        fetchTodoImage();
     }
 }
 
@@ -684,6 +752,10 @@ void setup() {
             rtspIndex = (rtspIndex + 1) % rtspStreamCount;
             return;
         }
+        if (activeScreen == TODO) {
+            sendTodoAction("done");
+            return;
+        }
         sendCommand("/v1/spotify/toggle");
     });
     btn.attachDoubleClick([]() {
@@ -692,26 +764,37 @@ void setup() {
             rtspIndex = (rtspIndex - 1 + rtspStreamCount) % rtspStreamCount;
             return;
         }
+        if (activeScreen == TODO) {
+            todoSelectedIndex++;
+            fetchTodoImage();
+            return;
+        }
         sendCommand("/v1/spotify/next");
     });
     btn.attachLongPressStart([]() {
         if (activeScreen == CLOCK) return;
         if (activeScreen == RTSP) return;
+        if (activeScreen == TODO) {
+            sendTodoAction("archive");
+            return;
+        }
         sendCommand("/v1/spotify/previous");
     });
     btn2.attachClick([]() {
-        // Forward cycle: CLOCK -> CC_USAGE -> RTSP -> SPOTIFY -> CLOCK
+        // Forward cycle: CLOCK -> CC_USAGE -> RTSP -> SPOTIFY -> TODO -> CLOCK
         Screen next;
         if      (activeScreen == CLOCK)    next = CC_USAGE;
         else if (activeScreen == CC_USAGE) next = RTSP;
         else if (activeScreen == RTSP)     next = SPOTIFY;
+        else if (activeScreen == SPOTIFY)  next = TODO;
         else                               next = CLOCK;
         activateScreen(next);
     });
     btn2.attachDoubleClick([]() {
-        // Backward cycle: CLOCK -> SPOTIFY -> RTSP -> CC_USAGE -> CLOCK
+        // Backward cycle: CLOCK -> TODO -> SPOTIFY -> RTSP -> CC_USAGE -> CLOCK
         Screen target;
-        if      (activeScreen == CLOCK)    target = SPOTIFY;
+        if      (activeScreen == CLOCK)    target = TODO;
+        else if (activeScreen == TODO)     target = SPOTIFY;
         else if (activeScreen == SPOTIFY)  target = RTSP;
         else if (activeScreen == RTSP)     target = CC_USAGE;
         else                               target = CLOCK;
