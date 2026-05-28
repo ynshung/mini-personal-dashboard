@@ -24,6 +24,7 @@
       "label": "Ambient",
       "mode": "stretch",
       "grab_interval_s": 0.1,
+      "apply_resize": false,
       "apply_mask": false
     }
   ]

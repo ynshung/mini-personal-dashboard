@@ -95,12 +95,13 @@ def apply_circular_mask(img: Image.Image) -> Image.Image:
 class RtspGrabber:
     def __init__(self, url: str, mode: str, idle_timeout: float, grab_interval: float,
                  label: str, overlay: "OverlayConfig | None", index: int, total: int,
-                 apply_mask: bool = True):
+                 apply_mask: bool = True, apply_resize: bool = True):
         self.url = url
         self.mode = mode
         self.idle_timeout = idle_timeout
         self.grab_interval = grab_interval
         self.apply_mask = apply_mask
+        self.apply_resize = apply_resize
         self._label = label
         self._overlay = overlay
         self._index = index
@@ -169,7 +170,8 @@ class RtspGrabber:
                         now = time.monotonic()
                         if self.grab_interval == 0.0 or now - last_encode >= self.grab_interval:
                             img = frame.to_image().convert("RGB")
-                            img = resize_frame(img, self.mode)
+                            if self.apply_resize:
+                                img = resize_frame(img, self.mode)
                             if self.apply_mask:
                                 img = apply_circular_mask(img)
                             if self._overlay is not None:
@@ -216,6 +218,7 @@ class StreamConfig:
     mode: str
     grab_interval: float
     apply_mask: bool = True
+    apply_resize: bool = True
 
 
 @dataclass
@@ -248,6 +251,7 @@ def load_config() -> RtspConfig:
             mode=s.get("mode", "fill"),
             grab_interval=float(s.get("grab_interval_s", 0.0)),
             apply_mask=bool(s.get("apply_mask", True)),
+            apply_resize=bool(s.get("apply_resize", True)),
         )
         for i, s in enumerate(data.get("streams", []))
     ]
@@ -322,6 +326,7 @@ async def get_rtsp_frame(index: int = Query(0, ge=0)):
                 index=index,
                 total=len(config.streams),
                 apply_mask=stream_cfg.apply_mask,
+                apply_resize=stream_cfg.apply_resize,
             )
         grabber = _grabbers[index]
 
