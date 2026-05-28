@@ -91,8 +91,9 @@ Hardware: GC9A01 240×240 round TFT, driven via SPI.
 - `/v1/rtsp/frame?index=N` returns 240×240 JPEG with circular mask; fetched continuously by Core 0 (`rtspNetTask`); `X-Stream-Count` response header updates `rtspStreamCount` for button cycling
 
 **RTSP server pipeline (`server/routes/rtsp.py`):**
-- Config loaded from `server/rtsp_config.json` (gitignored; copy from `.example`): array of streams with `url`, `label`, `mode` (`"fill"` or `"fit"`), `grab_interval_s`; top-level `idle_timeout_s`; optional `overlay` object (`show_label`, `show_dots`, `label_y`, `dots_y`) — omitting `overlay` disables all overlay rendering
-- `RtspGrabber` per stream: daemon thread, opens RTSP via PyAV (`av.open`, TCP transport), decodes frames at camera rate, JPEG-encodes every `grab_interval_s` (0 = every frame); caches latest frame in memory under a lock; logs INFO on start and idle stop
+- Config loaded from `server/rtsp_config.json` (gitignored; copy from `rtsp_config-example.json`): array of streams with `url`, `label`, `mode` (`"fill"`, `"fit"`, or `"stretch"`), `grab_interval_s`; top-level `idle_timeout_s`; optional `overlay` object (`show_label`, `show_dots`, `label_y`, `dots_y`) — omitting `overlay` disables all overlay rendering
+- `url` can be an RTSP URL (`rtsp://...`) or an absolute path to a local video file; local files are detected via `_is_local_file()` (no URL scheme prefix) and loop automatically on EOF by re-opening the container
+- `RtspGrabber` per stream: daemon thread, opens source via PyAV (`av.open`; TCP transport options only for RTSP), decodes frames, JPEG-encodes every `grab_interval_s` (0 = every frame); caches latest frame in memory under a lock; logs INFO on start and idle stop
 - Lazy start on first poll; self-terminates after `idle_timeout_s` of no `touch()` calls; restarts automatically on next poll
 - Image processing: `resize_frame(img, mode)` → `apply_circular_mask(img)` → optional `composite_overlay(img, index, total, label)` → JPEG quality 75; circle radius 124 px
 - `composite_overlay`: draws camera-select dots (y=204, r=3, gap=13) and label text (bottom at y=224) using NotoSansCJK-Medium 14 pt; only runs when `show_overlay` is true

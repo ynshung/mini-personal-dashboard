@@ -11,7 +11,7 @@ from fastapi.responses import Response
 from PIL import Image, ImageDraw, ImageFont
 
 IMG_SIZE = 240
-CIRCLE_RADIUS = 120
+CIRCLE_RADIUS = 124
 CX = IMG_SIZE // 2
 
 FONTS_DIR = Path(__file__).parent.parent / "fonts"
@@ -94,11 +94,13 @@ def apply_circular_mask(img: Image.Image) -> Image.Image:
 
 class RtspGrabber:
     def __init__(self, url: str, mode: str, idle_timeout: float, grab_interval: float,
-                 label: str, overlay: "OverlayConfig | None", index: int, total: int):
+                 label: str, overlay: "OverlayConfig | None", index: int, total: int,
+                 apply_mask: bool = True):
         self.url = url
         self.mode = mode
         self.idle_timeout = idle_timeout
         self.grab_interval = grab_interval
+        self.apply_mask = apply_mask
         self._label = label
         self._overlay = overlay
         self._index = index
@@ -132,30 +134,44 @@ class RtspGrabber:
         with self._lock:
             return time.monotonic() - self._last_poll > self.idle_timeout
 
+    def _is_local_file(self) -> bool:
+        return not self.url.startswith(("rtsp://", "rtsps://", "http://", "https://", "udp://", "tcp://"))
+
     def _run(self) -> None:
         import av  # deferred to avoid hard failure if av not installed at import time
         backoff = 1.0
+        is_local = self._is_local_file()
+        open_options = {} if is_local else {"rtsp_transport": "tcp", "stimeout": "5000000"}
+        last_encode = 0.0
         while True:
             if self._idle():
                 logging.info("RTSP stream stopped (idle): %s", self.url)
                 break
             try:
-                container = av.open(
-                    self.url,
-                    options={"rtsp_transport": "tcp", "stimeout": "5000000"},
-                )
+                container = av.open(self.url, options=open_options)
                 backoff = 1.0  # fix #4: reset backoff on successful connect
+                eof = False
                 try:
-                    last_encode = 0.0
                     # stimeout covers connection timeout; mid-stream stalls require camera-side keepalives
+                    playback_start = time.monotonic()
+                    start_pts: float | None = None
                     for frame in container.decode(video=0):
                         if self._idle():
                             break
+                        if is_local and frame.pts is not None and frame.time_base is not None:
+                            # pace to real-time using frame timestamps
+                            frame_ts = float(frame.pts * frame.time_base)
+                            if start_pts is None:
+                                start_pts = frame_ts
+                            wait = playback_start + (frame_ts - start_pts) - time.monotonic()
+                            if wait > 0:
+                                time.sleep(wait)
                         now = time.monotonic()
                         if self.grab_interval == 0.0 or now - last_encode >= self.grab_interval:
                             img = frame.to_image().convert("RGB")
                             img = resize_frame(img, self.mode)
-                            img = apply_circular_mask(img)
+                            if self.apply_mask:
+                                img = apply_circular_mask(img)
                             if self._overlay is not None:
                                 ov = self._overlay
                                 img = composite_overlay(
@@ -170,8 +186,12 @@ class RtspGrabber:
                             with self._lock:
                                 self._frame = buf.getvalue()
                             last_encode = now
+                    else:
+                        eof = True  # for-loop exhausted normally (end of file)
                 finally:
                     container.close()
+                if eof and is_local:
+                    continue  # re-open file from beginning (loop)
             except Exception as e:
                 logging.warning("RtspGrabber %s error (backoff %.1fs): %s", self.url, backoff, e)
                 time.sleep(backoff)
@@ -195,6 +215,7 @@ class StreamConfig:
     label: str
     mode: str
     grab_interval: float
+    apply_mask: bool = True
 
 
 @dataclass
@@ -226,6 +247,7 @@ def load_config() -> RtspConfig:
             label=s.get("label", f"Stream {i}"),
             mode=s.get("mode", "fill"),
             grab_interval=float(s.get("grab_interval_s", 0.0)),
+            apply_mask=bool(s.get("apply_mask", True)),
         )
         for i, s in enumerate(data.get("streams", []))
     ]
@@ -299,6 +321,7 @@ async def get_rtsp_frame(index: int = Query(0, ge=0)):
                 overlay=config.overlay,
                 index=index,
                 total=len(config.streams),
+                apply_mask=stream_cfg.apply_mask,
             )
         grabber = _grabbers[index]
 

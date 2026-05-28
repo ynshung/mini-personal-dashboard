@@ -13,7 +13,7 @@ This is a personal project which is heavily developed using Claude Code. Please 
 - **Clock** — always-on NTP-synced digital clock (weekday, date, time); initial startup screen; falls back to clock when server is unreachable and auto-restores when it comes back
 - **Spotify Player** — now-playing display with playback controls (play/pause, next, previous)
 - **Claude Usage Monitor** — real-time Claude Code plan usage (5-hour session and 7-day windows), with reset timers and expected usage indicators
-- **RTSP Camera Viewer** — live camera feed display with multi-stream support; server proxies H.264 RTSP streams as JPEG snapshots
+- **RTSP Camera Viewer** — live camera feed display with multi-stream support; server proxies RTSP streams and local video files as JPEG snapshots
 - **RevenueCat Dashboard** *(TODO)* — subscription revenue metrics
 
 ## Get Started
@@ -48,12 +48,12 @@ uv run uvicorn main:app --host 0.0.0.0 --port 7333
 
 Requires Python 3.12+ and [uv](https://github.com/astral-sh/uv).
 
-### 3. Configure RTSP streams (optional)
+### 3. Configure RTSP streams / video files (optional)
 
-Copy the example config and fill in your camera URLs:
+Copy the example config and fill in your camera URLs or video file paths:
 
 ```bash
-cp server/rtsp_config.json.example server/rtsp_config.json
+cp server/rtsp_config-example.json server/rtsp_config.json
 ```
 
 Edit `server/rtsp_config.json`:
@@ -73,13 +73,21 @@ Edit `server/rtsp_config.json`:
       "label": "Front Door",
       "mode": "fill",
       "grab_interval_s": 0.1
+    },
+    {
+      "url": "/absolute/path/to/ambient.mjpeg",
+      "label": "Ambient",
+      "mode": "stretch",
+      "grab_interval_s": 0.1
     }
   ]
 }
 ```
 
-- `mode`: `"fill"` = center-crop to circle; `"fit"` = letterbox; `"stretch"` = stretch to fill (ignores aspect ratio)
-- `grab_interval_s`: server-side frame encode rate in seconds (`0` = encode every decoded camera frame, `0.1` = 10fps cap)
+- `url`: RTSP stream URL (`rtsp://...`) or an absolute path to a local video file — local files loop automatically
+- `mode`: `"fill"` = center-crop to circle; `"fit"` = letterbox; `"stretch"` = stretch to fill (ignores aspect ratio); use `"stretch"` for pre-sized 240×240 files
+- `apply_mask`: apply a circular black mask to the frame (default `true`); set to `false` for pre-converted videos or when the display's physical round clip is sufficient
+- `grab_interval_s`: server-side frame encode rate in seconds (`0` = encode every decoded frame, `0.1` = ~10 fps cap)
 - `idle_timeout_s`: seconds before the server stops a stream with no active polling (recommended: 30+)
 - `overlay`: omit this section to disable all overlay rendering; when present:
   - `show_label`: show the stream label text (default `true`)
@@ -88,6 +96,14 @@ Edit `server/rtsp_config.json`:
   - `dots_y`: center y of the dots indicator in pixels (default `218`)
 
 This file is gitignored (may contain credentials in URLs).
+
+**Tip:** For looping ambient video, pre-convert to 240×240 MJPEG for best performance:
+```bash
+ffmpeg -i input.mp4 \
+  -vf "scale=240:240:force_original_aspect_ratio=increase:flags=lanczos,crop=240:240" \
+  -c:v mjpeg -q:v 5 -an \
+  ambient.mjpeg
+```
 
 ### 4. Authorize Spotify
 
@@ -163,10 +179,11 @@ The display has four screens cycled by GPIO 21.
 
 **RTSP Camera screen** — renders frames as fast as they arrive (dual-core: Core 0 fetches, Core 1 renders):
 
-- **Live camera frame** — server decodes H.264 RTSP stream, resizes to 240×240 with circular mask, returns as JPEG; ESP32 decodes and blits each frame immediately
+- **Live camera frame** — server decodes RTSP stream or local video file, resizes to 240×240 with circular mask, returns as JPEG; ESP32 decodes and blits each frame immediately
+- **Local video looping** — local file paths (e.g. `/path/to/ambient.mjpeg`) are supported alongside RTSP URLs; files loop automatically on end-of-file
 - **Stream label and dots indicator** — composited server-side onto the JPEG (controlled by `overlay` in config); label shown near top, dots near bottom indicate selected stream out of total
 - **Multi-stream navigation** — single/double click GPIO 19 to cycle next/previous stream
-- Configure streams in `server/rtsp_config.json` (copy from `server/rtsp_config.json.example`)
+- Configure streams in `server/rtsp_config.json` (copy from `server/rtsp_config-example.json`)
 
 **CC Usage screen** — polls `/v1/cc-usage` every 10 seconds:
 
