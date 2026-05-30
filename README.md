@@ -2,7 +2,7 @@
 
 ![Spotify screen](docs/assets/spotify.jpeg)![CC Usage screen](docs/assets/cc.jpeg)
 
-A personal dashboard running on an ESP32 with a 240×240 round GC9A01 display. Shows a live clock, Spotify now-playing with album art and playback controls, Claude Code plan usage, and RTSP camera feeds. Consists of a local FastAPI server (macOS) and ESP32 firmware that polls it over Wi-Fi.
+A personal dashboard running on an ESP32 with a 240×240 round GC9A01 display. Shows a live clock, Spotify now-playing synced lyrics with playback controls, Claude Code plan usage, RTSP camera feeds and video playback. Consists of a local FastAPI server (macOS) and ESP32 firmware that polls it over Wi-Fi.
 
 ## Disclaimer
 
@@ -12,9 +12,10 @@ A personal dashboard running on an ESP32 with a 240×240 round GC9A01 display. S
 ## Features
 
 - **Clock** — always-on NTP-synced digital clock (weekday, date, time); initial startup screen; falls back to clock when server is unreachable and auto-restores when it comes back
-- **Spotify Player** — now-playing display with album art, playback controls (play/pause, next, previous), and time-synced lyrics (when available)
+- **Spotify Player** — now-playing time-synced lyrics, album art and playback controls (play/pause, next, previous), 
 - **Claude Usage Monitor** — real-time Claude Code plan usage (5-hour session and 7-day windows), with reset timers and expected usage indicators
-- **RTSP Camera Viewer** — live camera feed display with multi-stream support; server proxies RTSP streams and local video files as JPEG snapshots
+- **RTSP Camera Viewer** — live camera feed display with multi-stream support; server proxies RTSP streams
+- **Video Player** — local video file playback (e.g. for ambient videos)
 - **RevenueCat Dashboard** *(TODO)* — subscription revenue metrics
 
 ## Get Started
@@ -44,9 +45,6 @@ LYRICS_LATENCY_OFFSET_MS=150
 - `DEVELOPMENT_MODE` — set to `true` to skip API key checks (default `false`)
 - `LYRICS_FONT_SIZE` — current lyric line font size in px (default `17`); context lines scale proportionally
 - `LYRICS_LATENCY_OFFSET_MS` — ms added to playback position before lyric lookup to compensate for network + render delay (default `150`); increase if lyrics lag, decrease if they appear too early
-
-> [!WARNING]
-> Never set `DEVELOPMENT_MODE=true` in production — it disables all API key authentication.
 
 ### 2. Install & run the server
 
