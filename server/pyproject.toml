@@ -12,6 +12,7 @@ dependencies = [
     "Pillow>=11",
     "av>=14",
     "pykakasi>=2.2",
+    "google-genai>=1.0",
 ]
 
 [project.optional-dependencies]

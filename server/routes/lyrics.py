@@ -21,23 +21,65 @@ BLUR_RADIUS = 10
 DIM_ALPHA = 0.6
 
 LYRICS_CACHE_DIR = Path(__file__).parent.parent / ".lyrics_cache"
+TRANSLATION_CACHE_DIR = Path(__file__).parent.parent / ".translation_cache"
 
-_ROMAJI_ENABLED = os.getenv("LYRICS_ROMAJI", "false").lower() == "true"
+_JAPANESE_MODE = os.getenv("LYRICS_JAPANESE_MODE", "off").lower()  # off | romaji | translate
 _kana_re = re.compile(r"[぀-ヿ]")
 
-if _ROMAJI_ENABLED:
+if _JAPANESE_MODE == "romaji":
     import pykakasi as _pykakasi
     _kakasi = _pykakasi.kakasi()
+elif _JAPANESE_MODE == "translate":
+    from google import genai as _genai
+    from google.genai import types as _genai_types
+    from pydantic import BaseModel as _BaseModel
+
+    class _TranslationResult(_BaseModel):
+        translations: list[str]
+
+    _gemini = _genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 
 def _to_romaji(text: str) -> str:
-    if not _ROMAJI_ENABLED or not _kana_re.search(text):
+    if _JAPANESE_MODE != "romaji" or not _kana_re.search(text):
         return text
     result = " ".join(item["hepburn"] for item in _kakasi.convert(text))
     result = re.sub(r"\s+([,\.!?])", r"\1", result)
     return result.capitalize()
 
-# in-memory L1 cache; file cache is L2
+
+async def _translate_song(
+    track_id: str, lines: list[tuple[int, str]]
+) -> list[tuple[int, str]]:
+    cache_path = TRANSLATION_CACHE_DIR / f"{track_id}.json"
+    if cache_path.exists():
+        data = json.loads(cache_path.read_text())
+        return [tuple(entry) for entry in data]
+
+    texts = [text for _, text in lines]
+    numbered = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(texts))
+    prompt = (
+        "Translate the following Japanese song lyrics to English naturally, "
+        "preserving the emotional tone. Return exactly one translation per line "
+        f"in the same order as given.\n\n{numbered}"
+    )
+
+    response = await _gemini.aio.models.generate_content(
+        model="gemini-3.5-flash",
+        contents=prompt,
+        config=_genai_types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_json_schema=_TranslationResult,
+        ),
+    )
+    result = _TranslationResult.model_validate_json(response.text)
+
+    translated = [(ts, t) for (ts, _), t in zip(lines, result.translations)]
+    TRANSLATION_CACHE_DIR.mkdir(exist_ok=True)
+    cache_path.write_text(json.dumps(translated))
+    return translated
+
+
 # track_id → list[(timestamp_ms, text)] | None (None = no synced lyrics found)
 _lyrics_cache: dict[str, list[tuple[int, str]] | None] = {}
 
@@ -135,6 +177,8 @@ async def get_has_lyrics(
             _save_to_file(track_id, lines)
         else:
             lines = cached
+        if _JAPANESE_MODE == "translate" and lines:
+            lines = await _translate_song(track_id, lines)
         _lyrics_cache[track_id] = lines
     return _lyrics_cache[track_id] is not None
 
@@ -171,7 +215,6 @@ def _select_lines(
         next_text = "♪"
 
     return prev, curr, next_text, next_ms
-
 
 
 @router.get("/spotify/lyrics/frame")
