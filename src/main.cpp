@@ -719,7 +719,7 @@ void fetchNowPlaying() {
     if (has_lyrics) {
         int16_t serverLine = doc["current_line"] | (int16_t)-1;
         int32_t nextLineAt = doc["next_line_at_ms"] | (int32_t)-1;
-        if (track_changed || seeked || serverLine > currentLineIndex) {
+        if (track_changed || seeked || !lyricsMode || serverLine > currentLineIndex) {
             currentLineIndex = serverLine;
             if (nextLineAt >= 0) {
                 uint32_t localProgress = current.progress_ms;
