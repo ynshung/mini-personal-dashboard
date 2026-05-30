@@ -63,8 +63,8 @@ Hardware: GC9A01 240×240 round TFT, driven via SPI.
 - Progress bar: 160×3 px at (40, 210), white fill when playing, dim when paused — drawn locally by ESP32
 
 **Album art pipeline (`server/routes/album_art.py`):**
-- Fetches album art JPEG from Spotify, resizes to 240×240, applies gradient overlay (rows 132–240), circular mask (radius 110), composites track/artist text, encodes to JPEG (quality 75, optimized)
-- Base image (art + gradient + mask) cached in `server/.album_art_cache/` keyed by Spotify album ID; text composited per-request on top of cached base
+- Fetches album art JPEG from Spotify, resizes to 240×240, applies gradient overlay (rows 132–240), composites track/artist text, encodes to JPEG (quality 75, optimized); no server-side circular mask — display hardware clips to circle
+- Base image (art + gradient) cached in `server/.album_art_cache/` keyed by Spotify album ID; text composited per-request on top of cached base
 
 **Button controls (`src/main.cpp`):**
 - GPIO 19, active-high, no internal pull-up (OneButton library)
@@ -80,12 +80,13 @@ Hardware: GC9A01 240×240 round TFT, driven via SPI.
 - `CLOCK` (default/startup): NTP-synced minimal analog clock rendered entirely on-device via `TFT_eSprite` (240×240, 8-bit color depth); 12 grey radial tick marks, white hour/minute hands, red sweeping second hand with counterweight tail, white center dot, and date text ("Mon 26") below center; smooth animation at 25 FPS (`CLOCK_TICK_MS = 40`); sub-second interpolation via `gettimeofday()` microseconds; sprite created on activation, freed on screen switch to reclaim ~57 KB; date string cached in `clockDateBuf`, recomputed on activation or midnight; timezone set via `NTP_OFFSET_HOURS` float define (default `8.0f` = UTC+8; supports fractional offsets); NTP synced in `initWiFi` via `configTime`; also acts as server-unreachable fallback — after `IDLE_TIMEOUT_MS` (2 min) of server errors on any screen, calls `activateScreen(CLOCK)` and stays there permanently
 - `CC_USAGE`: polls `/v1/cc-usage` every 10 s; renders Claude logo (`include/claude_logo.h`, RGB565 bitmap stored byte-swapped for TFT_eSPI), 5-HR and 7-DAY utilization blocks, and a "last refreshed" label at the bottom; color thresholds 0–60% white, 61–99% orange, 100% red; `-1` sentinel means null (plan doesn't have that window); server caches upstream response for 2 min and includes `refreshed_ago` string in every response; each usage bar has a small white downward triangle above it marking `time_pct` (percentage of the billing window elapsed, computed server-side from `resets_at`)
 - `RTSP`: dual-core pipeline — `rtspNetTask` (Core 0) fetches `/v1/rtsp/frame?index=rtspIndex` continuously using ping-pong double buffers (`rtspBuf[2][32768]`) and `rtspFreeSem`/`rtspReadySem` counting semaphores; `loop()` (Core 1) renders each frame via TJpgDec as soon as it arrives; overlay (label + dots) composited server-side into the JPEG; `rtspStreamCount` tracked from `X-Stream-Count` header; stream index persists across screen switches; task suspended when not on RTSP screen
-- `SPOTIFY`: polls `/v1/spotify/now-playing` every 5 s, renders album art, progress bar
+- `SPOTIFY`: polls `/v1/spotify/now-playing` every 5 s; when `has_lyrics` is true enters lyrics mode (`lyricsMode = true`) — fetches `/v1/spotify/lyrics/frame` on a timer driven by `X-Next-Lyric-Ms` response header; when `has_lyrics` is false renders album art as usual; progress bar always drawn locally; seek detection resets the lyrics timer immediately (drift > 3 s from local estimate triggers re-fetch)
 - On screen switch: `activateScreen(s)` clears `serverUnreachableSince`, `pollFailed`, runs per-screen init (fetch + draw); screens poll independently
 
 **Polling & rendering:**
-- `/v1/spotify/now-playing` returns lightweight JSON: `track_id`, `is_playing`, `progress_ms`, `duration_ms`
-- `/v1/spotify/now-playing/art/jpeg` returns composited JPEG (7–29 KB) — called only on track change; decoded on-device by TJpg_Decoder
+- `/v1/spotify/now-playing` returns lightweight JSON: `track_id`, `is_playing`, `progress_ms`, `duration_ms`, `has_lyrics`; also updates server-side playback cache used by the lyrics endpoint
+- `/v1/spotify/now-playing/art/jpeg` returns composited JPEG (7–29 KB) — called only on track change when `has_lyrics` is false; decoded on-device by TJpg_Decoder
+- `/v1/spotify/lyrics/frame` returns 240×240 JPEG with blurred+dimmed album art background and 3-line lyrics overlay; called on timer when `has_lyrics` is true; `X-Next-Lyric-Ms` header tells ESP how long until the next lyric line
 - API poll every 5 s (`POLL_INTERVAL_MS`); also polls immediately when estimated progress reaches song duration
 - Local tick every 1s (`TICK_INTERVAL_MS`) interpolates progress bar only
 - `/v1/rtsp/frame?index=N` returns 240×240 JPEG with circular mask; fetched continuously by Core 0 (`rtspNetTask`); `X-Stream-Count` response header updates `rtspStreamCount` for button cycling
@@ -97,3 +98,10 @@ Hardware: GC9A01 240×240 round TFT, driven via SPI.
 - Lazy start on first poll; self-terminates after `idle_timeout_s` of no `touch()` calls; restarts automatically on next poll
 - Image processing: `resize_frame(img, mode)` → `apply_circular_mask(img)` → optional `composite_overlay(img, index, total, label)` → JPEG quality 75; circle radius 124 px
 - `composite_overlay`: draws camera-select dots (y=204, r=3, gap=13) and label text (bottom at y=224) using NotoSansCJK-Medium 14 pt; only runs when `show_overlay` is true
+
+**Lyrics server pipeline (`server/routes/lyrics.py`):**
+- Synced lyrics fetched from lrclib.net (`GET /api/get?track_name=...&artist_name=...&duration=...`); parsed from LRC format (`[MM:SS.ms] text`) into sorted `(timestamp_ms, text)` tuples; cached in memory per `track_id`; `None` cached on miss so lrclib is not re-queried per poll
+- Playback cache (`_playback_cache`) holds `track_id`, `track_name`, `artist_name`, `duration_ms`, `album_id`, `art_url`, `progress_ms`, `is_playing`, `cached_at`; updated by `spotify.py` on every `/v1/spotify/now-playing` call
+- `GET /v1/spotify/lyrics/frame`: extrapolates `effective_progress = cached_progress + elapsed + LYRICS_LATENCY_OFFSET_MS`; selects prev/curr/next lines; opens cached album art base, applies Gaussian blur (radius 10) + 60% black dim overlay; calls `composite_lyrics()`; returns JPEG with `X-Next-Lyric-Ms` header
+- Empty lyric lines (instrumental gaps) displayed as `♪` for all three slots; prev/next truncate with `…` at `LYRICS_CTX_MAX_WIDTH` (160 px); current line wraps with `LYRICS_LINE_SPACING` between wrapped rows
+- `LYRICS_FONT_SIZE` (default 17 px) controls current line size; context lines scale to `round(size * 0.72)`; `LYRICS_LATENCY_OFFSET_MS` (default 150 ms) compensates for network + render + decode delay

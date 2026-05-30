@@ -58,6 +58,7 @@ const int BAR_W = 120;
 const int BAR_X = (240 - BAR_W) / 2;
 const int BAR_Y = 210;
 const int BAR_H = 3;
+const int BAR_PAD = 3; // black clearance above and below the bar
 
 struct TrackState {
     bool     is_playing  = false;
@@ -75,6 +76,8 @@ unsigned long lastTick    = 0;
 unsigned long lastFetchMs = 0;
 bool hasArt = false;
 bool pollFailed = false;
+bool lyricsMode = false;
+uint32_t nextLyricFetchAt = 0;
 static volatile int rtspIndex       = 0;
 static volatile int rtspStreamCount = 1;
 
@@ -266,6 +269,7 @@ void rtspNetTask(void *) {
 }
 
 void drawProgressBar(uint32_t progress_ms, uint32_t duration_ms, bool is_playing) {
+    tft.fillRect(0, BAR_Y - BAR_PAD, 240, BAR_H + 2 * BAR_PAD, TFT_BLACK);
     tft.fillRoundRect(BAR_X, BAR_Y, BAR_W, BAR_H, BAR_H / 2, COL_BAR_BG);
     if (duration_ms == 0) return;
     int fillW = (int)((float)progress_ms / duration_ms * BAR_W);
@@ -412,8 +416,22 @@ void initWiFi() {
 
 // --- Album art streaming ---
 
+static bool skipBarRows = false;
+
 bool tft_output(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap) {
-    tft.pushImage(x, y, w, h, bitmap);
+    if (skipBarRows && y + h > BAR_Y - BAR_PAD && y < BAR_Y + BAR_H + BAR_PAD) {
+        // Render the portion above the cleared band
+        int16_t above_h = (BAR_Y - BAR_PAD) - y;
+        if (above_h > 0)
+            tft.pushImage(x, y, w, above_h, bitmap);
+        // Render the portion below the cleared band
+        int16_t below_y = BAR_Y + BAR_H + BAR_PAD;
+        int16_t below_h = (y + h) - below_y;
+        if (below_h > 0)
+            tft.pushImage(x, below_y, w, below_h, bitmap + (below_y - y) * w);
+    } else {
+        tft.pushImage(x, y, w, h, bitmap);
+    }
     return true;
 }
 
@@ -477,6 +495,92 @@ bool fetchAlbumArt() {
     Serial.println("Album art loaded");
     hasArt = true;
     return true;
+}
+
+void fetchLyricsFrame() {
+    HTTPClient http;
+    http.begin(String(serverUrl) + "/v1/spotify/lyrics/frame");
+    http.addHeader("X-API-Key", apiKey);
+    const char *headerKeys[] = {"X-Next-Lyric-Ms"};
+    http.collectHeaders(headerKeys, 1);
+
+    int code = http.GET();
+    if (code == 204) {
+        http.end();
+        nextLyricFetchAt = millis() + 1000;
+        return;
+    }
+    if (code == 404) {
+        // Server has no lyrics for this track; fall back to album art
+        http.end();
+        lyricsMode = false;
+        fetchAlbumArt();
+        return;
+    }
+    if (code != 200) {
+        Serial.printf("Lyrics frame HTTP error: %d\n", code);
+        http.end();
+        nextLyricFetchAt = millis() + 1000;
+        return;
+    }
+
+    String nextMsStr = http.header("X-Next-Lyric-Ms");
+    uint32_t nextMs = nextMsStr.length() > 0 ? (uint32_t)nextMsStr.toInt() : 1000;
+    if (nextMs < 500) nextMs = 500;
+
+    int contentLength = http.getSize();
+    if (contentLength <= 0 || contentLength > 100000) {
+        Serial.printf("Lyrics frame unexpected size: %d\n", contentLength);
+        http.end();
+        nextLyricFetchAt = millis() + 1000;
+        return;
+    }
+
+    uint8_t *buf = (uint8_t *)malloc(contentLength);
+    if (!buf) {
+        Serial.println("Lyrics frame malloc failed");
+        http.end();
+        nextLyricFetchAt = millis() + 1000;
+        return;
+    }
+
+    WiFiClient *stream = http.getStreamPtr();
+    int received = 0;
+    while (received < contentLength && stream->connected()) {
+        int avail = stream->available();
+        if (avail > 0) {
+            int toRead = min(avail, contentLength - received);
+            stream->readBytes(buf + received, toRead);
+            received += toRead;
+        } else {
+            delay(1);
+        }
+    }
+    http.end();
+
+    if (received != contentLength) {
+        Serial.printf("Lyrics frame incomplete: %d/%d\n", received, contentLength);
+        free(buf);
+        nextLyricFetchAt = millis() + 1000;
+        return;
+    }
+
+    tft.startWrite();
+    tft.setSwapBytes(true);
+    skipBarRows = true;
+    TJpgDec.drawJpg(0, 0, buf, contentLength);
+    skipBarRows = false;
+    tft.setSwapBytes(false);
+    tft.endWrite();
+    free(buf);
+
+    uint32_t display_progress = current.is_playing
+        ? current.progress_ms + (uint32_t)(millis() - lastFetchMs)
+        : current.progress_ms;
+    drawProgressBar(display_progress, current.duration_ms, current.is_playing);
+
+    nextLyricFetchAt = millis() + nextMs;
+    Serial.printf("Lyrics frame ok, next in %u ms\n", nextMs);
 }
 
 // --- Networking ---
@@ -545,18 +649,34 @@ void fetchNowPlaying() {
     bool track_changed = (next.track_id != current.track_id);
     bool play_state_changed = (next.is_playing != current.is_playing);
 
+    // Detect seek: progress differs from local estimate by more than 3 s
+    bool seeked = false;
+    if (!track_changed && current.is_playing) {
+        uint32_t estimated = current.progress_ms + (uint32_t)(millis() - lastFetchMs);
+        int32_t drift = (int32_t)next.progress_ms - (int32_t)estimated;
+        if (drift < -3000 || drift > 3000) seeked = true;
+    }
+
     current = next;
     lastFetchMs = millis();
 
+    bool has_lyrics = doc["has_lyrics"] | false;
+
     if (current.track_id.length() == 0) {
+        lyricsMode = false;
         if (hasArt || track_changed || wasFailedBefore) drawIdle();
         return;
     }
 
     if (track_changed) {
-        fetchAlbumArt();
+        lyricsMode = has_lyrics;
+        nextLyricFetchAt = 0;
+        if (!lyricsMode) {
+            fetchAlbumArt();
+        }
         drawProgressBar(current.progress_ms, current.duration_ms, current.is_playing);
-    } else if (play_state_changed) {
+    } else if (play_state_changed || seeked) {
+        if (lyricsMode) nextLyricFetchAt = 0;
         drawProgressBar(current.progress_ms, current.duration_ms, current.is_playing);
     }
 
@@ -644,6 +764,8 @@ void activateScreen(Screen s) {
         fetchCCUsage();
         lastCCPoll = millis();
     } else if (s == SPOTIFY) {
+        lyricsMode = false;
+        nextLyricFetchAt = 0;
         hasArt = false;
         current.track_id = "\x01";
         drawStatus("Loading...");
@@ -733,6 +855,11 @@ void loop() {
     }
 
     if (activeScreen == SPOTIFY) {
+        // Lyrics frame fetch
+        if (lyricsMode && now >= nextLyricFetchAt && WiFi.status() == WL_CONNECTED) {
+            fetchLyricsFrame();
+        }
+
         // End-of-song poll
         if (current.is_playing && current.duration_ms > 0) {
             uint32_t estimated = current.progress_ms + (uint32_t)(now - lastFetchMs);

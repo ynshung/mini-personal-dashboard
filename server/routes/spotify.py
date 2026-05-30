@@ -8,6 +8,7 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import RedirectResponse, Response
 from routes.album_art import fetch_and_build_base, composite_text, to_rgb565
+from routes.lyrics import update_playback_cache, get_has_lyrics
 
 router = APIRouter()
 
@@ -178,15 +179,38 @@ async def spotify_now_playing():
     data = resp.json()
 
     if data.get("currently_playing_type") != "track":
-        return {"is_playing": False}
+        return {"is_playing": False, "has_lyrics": False}
 
     item = data.get("item", {})
+    track_id = item.get("id", "")
+    track_name = item.get("name", "")
+    artists = item.get("artists", [])
+    artist_name = artists[0]["name"] if artists else ""
+    duration_ms = item.get("duration_ms", 0)
+    album = item.get("album", {})
+    album_id = album.get("id", "")
+    images = album.get("images", [])
+    art_url = next((img["url"] for img in reversed(images) if img["width"] >= 240), "")
+
+    update_playback_cache(
+        track_id=track_id,
+        track_name=track_name,
+        artist_name=artist_name,
+        duration_ms=duration_ms,
+        album_id=album_id,
+        art_url=art_url,
+        progress_ms=data.get("progress_ms", 0),
+        is_playing=data.get("is_playing", False),
+    )
+
+    has_lyrics = await get_has_lyrics(track_id, track_name, artist_name, duration_ms)
 
     return {
-        "track_id": item.get("id", ""),
+        "track_id": track_id,
         "is_playing": data.get("is_playing", False),
         "progress_ms": data.get("progress_ms", 0),
-        "duration_ms": item.get("duration_ms", 0),
+        "duration_ms": duration_ms,
+        "has_lyrics": has_lyrics,
     }
 
 

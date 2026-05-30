@@ -12,7 +12,7 @@ A personal dashboard running on an ESP32 with a 240×240 round GC9A01 display. S
 ## Features
 
 - **Clock** — always-on NTP-synced digital clock (weekday, date, time); initial startup screen; falls back to clock when server is unreachable and auto-restores when it comes back
-- **Spotify Player** — now-playing display with playback controls (play/pause, next, previous)
+- **Spotify Player** — now-playing display with album art, playback controls (play/pause, next, previous), and time-synced lyrics (when available)
 - **Claude Usage Monitor** — real-time Claude Code plan usage (5-hour session and 7-day windows), with reset timers and expected usage indicators
 - **RTSP Camera Viewer** — live camera feed display with multi-stream support; server proxies RTSP streams and local video files as JPEG snapshots
 - **RevenueCat Dashboard** *(TODO)* — subscription revenue metrics
@@ -31,6 +31,10 @@ SPOTIFY_CLIENT_SECRET=your_client_secret
 WIFI_SSID=your_network_name
 WIFI_PASSWORD=your_wifi_password
 DEVELOPMENT_MODE=false
+
+# Optional — lyrics tuning
+LYRICS_FONT_SIZE=17
+LYRICS_LATENCY_OFFSET_MS=150
 ```
 
 - `API_KEY` — used by the ESP32 to authenticate requests (set to any secret string)
@@ -38,6 +42,8 @@ DEVELOPMENT_MODE=false
 - `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` — from your [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
 - `WIFI_SSID` / `WIFI_PASSWORD` — for the ESP32 to connect to your network
 - `DEVELOPMENT_MODE` — set to `true` to skip API key checks (default `false`)
+- `LYRICS_FONT_SIZE` — current lyric line font size in px (default `17`); context lines scale proportionally
+- `LYRICS_LATENCY_OFFSET_MS` — ms added to playback position before lyric lookup to compensate for network + render delay (default `150`); increase if lyrics lag, decrease if they appear too early
 
 > [!WARNING]
 > Never set `DEVELOPMENT_MODE=true` in production — it disables all API key authentication.
@@ -181,9 +187,11 @@ The display has four screens cycled by GPIO 21.
 **Spotify screen** — polls `/v1/spotify/now-playing` every 5 seconds:
 
 - **Full-screen album art** — fetched from `/v1/spotify/now-playing/art/jpeg` as a composited JPEG (7–29 KB), decoded on-device by TJpg_Decoder (only on track change)
-- **Track name** and **artist** — rendered server-side with Pillow (Inter font) in a gradient overlay at the bottom of the album art
-- **Progress bar** — 160×3 px at y=210, white fill when playing; interpolated locally every 250 ms between polls
+- **Track name** and **artist** — rendered server-side with Pillow in a gradient overlay at the bottom of the album art
+- **Synced lyrics** — when the current track has lyrics on [lrclib.net](https://lrclib.net), the album art view is automatically replaced with a 3-line lyrics display (previous / **current** / next); the current line is rendered bold and white, context lines are dimmer and truncated; background is a blurred + dimmed version of the album art; fetched per lyric line change rather than continuously
+- **Progress bar** — 160×3 px at y=210, white fill when playing; interpolated locally between polls; redrawn within the same SPI transaction as each lyrics frame to prevent flicker
 - **End-of-song detection** — immediately polls when estimated progress reaches song duration
+- **Seek detection** — lyrics display re-syncs immediately when playback position jumps by more than 3 s
 
 **RTSP Camera screen** — renders frames as fast as they arrive (dual-core: Core 0 fetches, Core 1 renders):
 
@@ -245,6 +253,8 @@ DEVELOPMENT_MODE=false
 | `WIFI_SSID` | Wi-Fi network name for the ESP32 |
 | `WIFI_PASSWORD` | Wi-Fi password for the ESP32 |
 | `DEVELOPMENT_MODE` | Set to `true` to disable API key authentication (for local development only) |
+| `LYRICS_FONT_SIZE` | Current lyric line font size in px (default `17`); context lines scale to `round(size × 0.7)` |
+| `LYRICS_LATENCY_OFFSET_MS` | ms added to playback position before lyric lookup to compensate for network + render + decode delay (default `150`) |
 
 ---
 
@@ -352,7 +362,7 @@ Skips to the previous track.
 
 ### `GET /v1/spotify/now-playing`
 
-Returns lightweight playback state for polling.
+Returns lightweight playback state for polling. Also updates the server-side playback cache used by the lyrics endpoint, and checks lrclib.net for synced lyrics on track change (synchronous, ~3 s timeout).
 
 **Response (playing)**
 
@@ -361,14 +371,15 @@ Returns lightweight playback state for polling.
   "track_id": "6rqhFgbbKwnb9MLmUQDhG6",
   "is_playing": true,
   "progress_ms": 83000,
-  "duration_ms": 354000
+  "duration_ms": 354000,
+  "has_lyrics": true
 }
 ```
 
 **Response (nothing playing)**
 
 ```json
-{"is_playing": false}
+{"is_playing": false, "has_lyrics": false}
 ```
 
 | Field | Type | Description |
@@ -377,6 +388,7 @@ Returns lightweight playback state for polling.
 | `is_playing` | `bool` | Whether a track is currently playing |
 | `progress_ms` | `int` | Playback position in milliseconds |
 | `duration_ms` | `int` | Total track duration in milliseconds |
+| `has_lyrics` | `bool` | Whether synced lyrics are available on lrclib.net for this track |
 
 **Error responses**
 
@@ -388,9 +400,25 @@ Returns lightweight playback state for polling.
 
 ---
 
+### `GET /v1/spotify/lyrics/frame`
+
+Returns the current lyric frame as a 240×240 JPEG. The server blurs and dims the cached album art, then composites a 3-line lyrics overlay (previous / current / next lyric line). Lyric position is extrapolated from the cached playback state plus `LYRICS_LATENCY_OFFSET_MS`.
+
+Returns `204 No Content` if nothing is playing. Returns `404` if no synced lyrics are available (ESP falls back to album art mode).
+
+**Response:** `image/jpeg` — 240×240 px
+
+**Response headers**
+
+| Header | Description |
+|---|---|
+| `X-Next-Lyric-Ms` | Milliseconds until the next lyric line timestamp. ESP waits this long before fetching the next frame. |
+
+---
+
 ### `GET /v1/spotify/now-playing/art/jpeg`
 
-Returns the current track's album art as a composited JPEG image. The server fetches album art from Spotify, resizes to 240×240, applies a gradient overlay and circular mask, renders track/artist text, and encodes to JPEG (quality 75). Base images (art + gradient + mask) are cached by album ID in `server/.album_art_cache/`; text is composited per-request.
+Returns the current track's album art as a composited JPEG image. The server fetches album art from Spotify, resizes to 240×240, applies a gradient overlay, renders track/artist text, and encodes to JPEG (quality 75). Base images (art + gradient) are cached by album ID in `server/.album_art_cache/`; text is composited per-request.
 
 Returns `204 No Content` if nothing is playing.
 
