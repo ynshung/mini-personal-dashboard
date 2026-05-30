@@ -22,6 +22,19 @@ DIM_ALPHA = 0.6
 
 LYRICS_CACHE_DIR = Path(__file__).parent.parent / ".lyrics_cache"
 
+_ROMAJI_ENABLED = os.getenv("LYRICS_ROMAJI", "false").lower() == "true"
+_kana_re = re.compile(r"[぀-ヿ]")
+
+if _ROMAJI_ENABLED:
+    import pykakasi as _pykakasi
+    _kakasi = _pykakasi.kakasi()
+
+
+def _to_romaji(text: str) -> str:
+    if not _ROMAJI_ENABLED or not _kana_re.search(text):
+        return text
+    return " ".join(item["hepburn"] for item in _kakasi.convert(text)).capitalize()
+
 # in-memory L1 cache; file cache is L2
 # track_id → list[(timestamp_ms, text)] | None (None = no synced lyrics found)
 _lyrics_cache: dict[str, list[tuple[int, str]] | None] = {}
@@ -178,6 +191,7 @@ async def spotify_lyrics_frame():
     progress_ms += LATENCY_OFFSET_MS
 
     prev, curr, next_text, next_ms = _select_lines(lines, progress_ms)
+    prev, curr, next_text = _to_romaji(prev), _to_romaji(curr), _to_romaji(next_text)
 
     art_url = _playback_cache.get("art_url", "")
     album_id = _playback_cache.get("album_id", "")

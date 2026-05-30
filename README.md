@@ -36,6 +36,7 @@ DEVELOPMENT_MODE=false
 # Optional — lyrics tuning
 LYRICS_FONT_SIZE=17
 LYRICS_LATENCY_OFFSET_MS=150
+LYRICS_ROMAJI=false
 ```
 
 - `API_KEY` — used by the ESP32 to authenticate requests (set to any secret string)
@@ -45,6 +46,7 @@ LYRICS_LATENCY_OFFSET_MS=150
 - `DEVELOPMENT_MODE` — set to `true` to skip API key checks (default `false`)
 - `LYRICS_FONT_SIZE` — current lyric line font size in px (default `17`); context lines scale proportionally
 - `LYRICS_LATENCY_OFFSET_MS` — ms added to playback position before lyric lookup to compensate for network + render delay (default `150`); increase if lyrics lag, decrease if they appear too early
+- `LYRICS_ROMAJI` — set to `true` to convert Japanese lyrics to romaji (default `false`); detects Japanese by the presence of hiragana/katakana, English lines pass through unchanged
 
 ### 2. Install & run the server
 
@@ -253,6 +255,7 @@ DEVELOPMENT_MODE=false
 | `DEVELOPMENT_MODE` | Set to `true` to disable API key authentication (for local development only) |
 | `LYRICS_FONT_SIZE` | Current lyric line font size in px (default `17`); context lines scale to `round(size × 0.7)` |
 | `LYRICS_LATENCY_OFFSET_MS` | ms added to playback position before lyric lookup to compensate for network + render + decode delay (default `150`) |
+| `LYRICS_ROMAJI` | Set to `true` to convert Japanese lyrics to romaji; detects Japanese by hiragana/katakana presence, English lines pass through unchanged (default `false`) |
 
 ---
 

@@ -2,6 +2,9 @@ import logging
 import os
 
 from dotenv import load_dotenv
+
+load_dotenv()
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
@@ -9,8 +12,6 @@ from routes.cc_usage import router as cc_usage_router
 from routes.lyrics import router as lyrics_router
 from routes.rtsp import router as rtsp_router
 from routes.spotify import router as spotify_router
-
-load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(levelname)-9s %(name)s - %(message)s")
 
 app = FastAPI()
