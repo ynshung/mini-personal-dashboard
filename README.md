@@ -400,7 +400,7 @@ Returns lightweight playback state for polling. Also updates the server-side pla
 
 ### `GET /v1/spotify/lyrics/frame`
 
-Returns the current lyric frame as a 240×240 JPEG. The server blurs and dims the cached album art, then composites a 3-line lyrics overlay (previous / current / next lyric line). Lyric position is extrapolated from the cached playback state plus `LYRICS_LATENCY_OFFSET_MS`.
+Returns the current lyric frame as a 240×240 JPEG. The server blurs and dims the cached album art (no gradient — uniform background), then composites a 3-line lyrics overlay (previous / current / next lyric line). Lyric position is extrapolated from the cached playback state plus `LYRICS_LATENCY_OFFSET_MS`.
 
 Returns `204 No Content` if nothing is playing. Returns `404` if no synced lyrics are available (ESP falls back to album art mode).
 
@@ -416,7 +416,7 @@ Returns `204 No Content` if nothing is playing. Returns `404` if no synced lyric
 
 ### `GET /v1/spotify/now-playing/art/jpeg`
 
-Returns the current track's album art as a composited JPEG image. The server fetches album art from Spotify, resizes to 240×240, applies a gradient overlay, renders track/artist text, and encodes to JPEG (quality 75). Base images (art + gradient) are cached by album ID in `server/.album_art_cache/`; text is composited per-request.
+Returns the current track's album art as a composited JPEG image. The server fetches album art from Spotify, resizes to 240×240, applies a gradient overlay, renders track/artist text, and encodes to JPEG (quality 75). Raw base images are cached by album ID in `server/.album_art_cache/`; gradient and text are composited per-request.
 
 Returns `204 No Content` if nothing is playing.
 

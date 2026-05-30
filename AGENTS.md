@@ -64,7 +64,7 @@ Hardware: GC9A01 240×240 round TFT, driven via SPI.
 
 **Album art pipeline (`server/routes/album_art.py`):**
 - Fetches album art JPEG from Spotify, resizes to 240×240, applies gradient overlay (rows 132–240), composites track/artist text, encodes to JPEG (quality 75, optimized); no server-side circular mask — display hardware clips to circle
-- Base image (art + gradient) cached in `server/.album_art_cache/` keyed by Spotify album ID; text composited per-request on top of cached base
+- Raw base image cached in `server/.album_art_cache/` keyed by Spotify album ID; gradient and text composited per-request on top of cached base
 
 **Button controls (`src/main.cpp`):**
 - GPIO 19, active-high, no internal pull-up (OneButton library)
@@ -100,8 +100,8 @@ Hardware: GC9A01 240×240 round TFT, driven via SPI.
 - `composite_overlay`: draws camera-select dots (y=204, r=3, gap=13) and label text (bottom at y=224) using NotoSansCJK-Medium 14 pt; only runs when `show_overlay` is true
 
 **Lyrics server pipeline (`server/routes/lyrics.py`):**
-- Synced lyrics fetched from lrclib.net (`GET /api/get?track_name=...&artist_name=...&duration=...`); parsed from LRC format (`[MM:SS.ms] text`) into sorted `(timestamp_ms, text)` tuples; cached in memory per `track_id`; `None` cached on miss so lrclib is not re-queried per poll
+- Synced lyrics fetched from lrclib.net (`GET /api/get?track_name=...&artist_name=...&duration=...`); parsed from LRC format (`[MM:SS.ms] text`) into sorted `(timestamp_ms, text)` tuples; persisted to `server/.lyrics_cache/{track_id}.json` (survives restarts); in-memory dict is L1 cache on top; `None` stored on miss so lrclib is not re-queried per poll
 - Playback cache (`_playback_cache`) holds `track_id`, `track_name`, `artist_name`, `duration_ms`, `album_id`, `art_url`, `progress_ms`, `is_playing`, `cached_at`; updated by `spotify.py` on every `/v1/spotify/now-playing` call
-- `GET /v1/spotify/lyrics/frame`: extrapolates `effective_progress = cached_progress + elapsed + LYRICS_LATENCY_OFFSET_MS`; selects prev/curr/next lines; opens cached album art base, applies Gaussian blur (radius 10) + 60% black dim overlay; calls `composite_lyrics()`; returns JPEG with `X-Next-Lyric-Ms` header
+- `GET /v1/spotify/lyrics/frame`: extrapolates `effective_progress = cached_progress + elapsed + LYRICS_LATENCY_OFFSET_MS`; selects prev/curr/next lines; opens cached raw album art (no gradient), applies Gaussian blur (radius 10) + 60% black dim overlay; calls `composite_lyrics()`; returns JPEG with `X-Next-Lyric-Ms` header
 - Empty lyric lines (instrumental gaps) displayed as `♪` for all three slots; prev/next truncate with `…` at `LYRICS_CTX_MAX_WIDTH` (160 px); current line wraps with `LYRICS_LINE_SPACING` between wrapped rows
 - `LYRICS_FONT_SIZE` (default 17 px) controls current line size; context lines scale to `round(size * 0.72)`; `LYRICS_LATENCY_OFFSET_MS` (default 150 ms) compensates for network + render + decode delay
