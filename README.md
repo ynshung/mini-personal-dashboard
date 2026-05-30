@@ -403,9 +403,9 @@ Returns lightweight playback state for polling. Also updates the server-side pla
 
 ### `GET /v1/spotify/lyrics/frame`
 
-Returns the current lyric frame as a 240×240 JPEG. The server blurs and dims the cached album art (no gradient — uniform background), then composites a 3-line lyrics overlay (previous / current / next lyric line).
+Returns the current lyric frame as a 240×240 JPEG. To achieve near-instantaneous responses (< 2ms), the server eagerly pre-renders lyric JPEGs for the active track into a background cache folder (`server/.lyrics_cache/current_frames/`).
 
-Lyric position is taken from the `progress_ms` query param when provided (sent by the ESP from its local estimate); falls back to extrapolating from the cached playback state when absent.
+If the pre-rendered frame is available, it is served directly. Otherwise, the server falls back to rendering it on-the-fly (blurring and dimming the raw cached album art, compositing the 3-line lyrics overlay, and encoding as JPEG) and kicks off the background pre-rendering task.
 
 Returns `204 No Content` if nothing is playing. Returns `404` if no synced lyrics are available (ESP falls back to album art mode).
 
@@ -413,7 +413,7 @@ Returns `204 No Content` if nothing is playing. Returns `404` if no synced lyric
 
 | Parameter | Type | Description |
 |---|---|---|
-| `progress_ms` | `int` (optional) | Current playback position in ms, as estimated by the client. When provided, used directly for lyric line selection instead of server-side extrapolation. |
+| `line` | `int` (required) | The 0-based index of the lyric line to fetch. |
 
 **Response:** `image/jpeg` — 240×240 px
 

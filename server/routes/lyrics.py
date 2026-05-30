@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import re
+import shutil
 import time
 from io import BytesIO
 from pathlib import Path
@@ -41,6 +42,90 @@ def _to_romaji(text: str) -> str:
 # in-memory L1 cache; file cache is L2
 # track_id → list[(timestamp_ms, text)] | None (None = no synced lyrics found)
 _lyrics_cache: dict[str, list[tuple[int, str]] | None] = {}
+
+_pre_render_tasks: set[str] = set()
+
+def _get_current_track_id() -> str | None:
+    frames_dir = LYRICS_CACHE_DIR / "current_frames"
+    track_id_file = frames_dir / ".track_id"
+    if track_id_file.exists():
+        try:
+            return track_id_file.read_text().strip()
+        except Exception:
+            return None
+    return None
+
+def _pre_render_worker(
+    track_id: str,
+    lines: list[tuple[int, str]],
+    base_img_bytes: bytes,
+) -> None:
+    try:
+        frames_dir = LYRICS_CACHE_DIR / "current_frames"
+        tmp_dir = LYRICS_CACHE_DIR / "tmp_current_frames"
+        if tmp_dir.exists():
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+
+        # Write track_id file
+        (tmp_dir / ".track_id").write_text(track_id)
+
+        base = Image.open(BytesIO(base_img_bytes)).convert("RGB")
+        blurred = base.filter(ImageFilter.GaussianBlur(radius=BLUR_RADIUS))
+        dim_overlay = Image.new("RGB", (IMG_SIZE, IMG_SIZE), (0, 0, 0))
+        blurred = Image.blend(blurred, dim_overlay, DIM_ALPHA)
+
+        for i in range(len(lines)):
+            prev, curr, next_text, _ = _select_lines(lines, i)
+            prev, curr, next_text = _to_romaji(prev), _to_romaji(curr), _to_romaji(next_text)
+
+            final = composite_lyrics(blurred, prev, curr, next_text)
+
+            buf = BytesIO()
+            final.save(buf, format="JPEG", quality=90, optimize=True)
+            (tmp_dir / f"{i}.jpg").write_bytes(buf.getvalue())
+
+        (tmp_dir / ".ready").write_text("ready")
+
+        if frames_dir.exists():
+            shutil.rmtree(frames_dir, ignore_errors=True)
+        tmp_dir.rename(frames_dir)
+    except Exception as e:
+        print(f"Error pre-rendering frames for track {track_id}: {e}")
+        shutil.rmtree(LYRICS_CACHE_DIR / "tmp_current_frames", ignore_errors=True)
+    finally:
+        _pre_render_tasks.discard(track_id)
+
+async def pre_render_track_lyrics(
+    track_id: str,
+    lines: list[tuple[int, str]],
+    album_id: str,
+    art_url: str,
+) -> None:
+    if track_id in _pre_render_tasks:
+        return
+    frames_dir = LYRICS_CACHE_DIR / "current_frames"
+    if (frames_dir / ".ready").exists() and _get_current_track_id() == track_id:
+        return
+
+    _pre_render_tasks.add(track_id)
+    try:
+        base_img = await fetch_cached_art(art_url, album_id)
+        buf = BytesIO()
+        base_img.save(buf, format="JPEG")
+        base_img_bytes = buf.getvalue()
+
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None,
+            _pre_render_worker,
+            track_id,
+            lines,
+            base_img_bytes,
+        )
+    except Exception as e:
+        print(f"Failed to start pre-rendering for track {track_id}: {e}")
+        _pre_render_tasks.discard(track_id)
 
 
 def _lyrics_cache_path(track_id: str) -> Path:
@@ -139,6 +224,13 @@ async def _fetch_and_cache(
     if lines is not ...:
         _save_to_file(track_id, lines)
         _lyrics_cache[track_id] = lines
+        if lines is not None:
+            art_url = _playback_cache.get("art_url")
+            album_id = _playback_cache.get("album_id")
+            if art_url and album_id:
+                asyncio.create_task(
+                    pre_render_track_lyrics(track_id, lines, album_id, art_url)
+                )
     _fetch_in_progress.discard(track_id)
 
 
@@ -156,6 +248,16 @@ async def get_has_lyrics(
             return False  # still fetching — next poll will get the result
         else:
             _lyrics_cache[track_id] = cached
+
+    lines = _lyrics_cache[track_id]
+    if lines is not None:
+        art_url = _playback_cache.get("art_url")
+        album_id = _playback_cache.get("album_id")
+        if art_url and album_id:
+            asyncio.create_task(
+                pre_render_track_lyrics(track_id, lines, album_id, art_url)
+            )
+
     return _lyrics_cache[track_id] is not None
 
 
@@ -230,12 +332,31 @@ async def spotify_lyrics_frame(line: int):
         raise HTTPException(status_code=404, detail="No synced lyrics for this track")
 
     prev, curr, next_text, next_line_at = _select_lines(lines, line)
-    prev, curr, next_text = _to_romaji(prev), _to_romaji(curr), _to_romaji(next_text)
 
+    # Check for pre-rendered frame first
+    frames_dir = LYRICS_CACHE_DIR / "current_frames"
+    if (frames_dir / ".ready").exists() and _get_current_track_id() == track_id:
+        frame_path = frames_dir / f"{line}.jpg"
+        if frame_path.exists():
+            try:
+                content = frame_path.read_bytes()
+                return Response(
+                    content=content,
+                    media_type="image/jpeg",
+                    headers={"X-Next-Line-At-Ms": str(next_line_at - LATENCY_OFFSET_MS if next_line_at >= 0 else -1)},
+                )
+            except Exception:
+                pass
+
+    # Fallback to on-demand render (and trigger pre-rendering in background just in case)
     art_url = _playback_cache.get("art_url", "")
     album_id = _playback_cache.get("album_id", "")
-    if not art_url or not album_id:
-        raise HTTPException(status_code=503, detail="Album art metadata unavailable")
+    if art_url and album_id:
+        asyncio.create_task(
+            pre_render_track_lyrics(track_id, lines, album_id, art_url)
+        )
+
+    prev, curr, next_text = _to_romaji(prev), _to_romaji(curr), _to_romaji(next_text)
 
     base = await fetch_cached_art(art_url, album_id)
 
