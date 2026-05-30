@@ -33,7 +33,9 @@ if _ROMAJI_ENABLED:
 def _to_romaji(text: str) -> str:
     if not _ROMAJI_ENABLED or not _kana_re.search(text):
         return text
-    return " ".join(item["hepburn"] for item in _kakasi.convert(text)).capitalize()
+    result = " ".join(item["hepburn"] for item in _kakasi.convert(text))
+    result = re.sub(r"\s+([,\.!?])", r"\1", result)
+    return result.capitalize()
 
 # in-memory L1 cache; file cache is L2
 # track_id → list[(timestamp_ms, text)] | None (None = no synced lyrics found)
