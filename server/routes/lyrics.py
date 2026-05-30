@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 from PIL import Image, ImageFilter
 
-from routes.album_art import IMG_SIZE, fetch_and_build_base, composite_lyrics
+from routes.album_art import IMG_SIZE, fetch_cached_art, composite_lyrics
 
 router = APIRouter()
 
@@ -154,7 +154,7 @@ async def spotify_lyrics_frame():
     if not art_url or not album_id:
         raise HTTPException(status_code=503, detail="Album art metadata unavailable")
 
-    base = await fetch_and_build_base(art_url, album_id)
+    base = await fetch_cached_art(art_url, album_id)
 
     blurred = base.filter(ImageFilter.GaussianBlur(radius=BLUR_RADIUS))
     dim_overlay = Image.new("RGB", (IMG_SIZE, IMG_SIZE), (0, 0, 0))

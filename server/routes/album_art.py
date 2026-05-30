@@ -50,7 +50,7 @@ def _prune_cache() -> None:
         files.pop(0).unlink()
 
 
-async def fetch_and_build_base(art_url: str, album_id: str) -> Image.Image:
+async def fetch_cached_art(art_url: str, album_id: str) -> Image.Image:
     cache_path = CACHE_DIR / f"{album_id}.jpg"
 
     if cache_path.exists():
@@ -68,6 +68,14 @@ async def fetch_and_build_base(art_url: str, album_id: str) -> Image.Image:
     top = (img.height - IMG_SIZE) // 2
     img = img.crop((left, top, left + IMG_SIZE, top + IMG_SIZE))
 
+    CACHE_DIR.mkdir(exist_ok=True)
+    img.save(cache_path, "JPEG", quality=75, optimize=True)
+    _prune_cache()
+
+    return img
+
+
+def _apply_gradient(img: Image.Image) -> Image.Image:
     gradient = Image.new("L", (IMG_SIZE, IMG_SIZE), 0)
     for y in range(IMG_SIZE):
         if y <= GRADIENT_START_Y:
@@ -78,13 +86,11 @@ async def fetch_and_build_base(art_url: str, album_id: str) -> Image.Image:
             gradient.putpixel((x, y), alpha)
 
     black = Image.new("RGB", (IMG_SIZE, IMG_SIZE), (0, 0, 0))
-    img = Image.composite(black, img, gradient)
+    return Image.composite(black, img, gradient)
 
-    CACHE_DIR.mkdir(exist_ok=True)
-    img.save(cache_path, "JPEG", quality=75, optimize=True)
-    _prune_cache()
 
-    return img
+async def fetch_and_build_base(art_url: str, album_id: str) -> Image.Image:
+    return _apply_gradient(await fetch_cached_art(art_url, album_id))
 
 
 def composite_text(base: Image.Image, track: str, artist: str) -> Image.Image:
