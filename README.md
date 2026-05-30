@@ -11,7 +11,7 @@ A personal dashboard running on an ESP32 with a 240×240 round GC9A01 display. S
 
 ## Features
 
-- **Clock** — always-on NTP-synced digital clock (weekday, date, time); initial startup screen; falls back to clock when server is unreachable and auto-restores when it comes back
+- **Clock** — always-on NTP-synced digital clock (weekday, date, time); initial startup screen; falls back to clock when server is unreachable
 - **Spotify Player** — now-playing time-synced lyrics, album art and playback controls (play/pause, next, previous), 
 - **Claude Usage Monitor** — real-time Claude Code plan usage (5-hour session and 7-day windows), with reset timers and expected usage indicators
 - **RTSP Camera Viewer** — live camera feed display with multi-stream support; server proxies RTSP streams
