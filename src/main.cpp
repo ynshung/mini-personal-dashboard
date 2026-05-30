@@ -717,12 +717,15 @@ void fetchNowPlaying() {
     }
 
     if (has_lyrics) {
-        currentLineIndex = doc["current_line"] | (int16_t)-1;
+        int16_t serverLine = doc["current_line"] | (int16_t)-1;
         int32_t nextLineAt = doc["next_line_at_ms"] | (int32_t)-1;
-        if (nextLineAt >= 0) {
-            uint32_t localProgress = current.progress_ms;
-            int32_t msUntilNext = nextLineAt - (int32_t)localProgress;
-            nextLyricFetchAt = millis() + (uint32_t)max(50L, (long)msUntilNext);
+        if (track_changed || seeked || serverLine > currentLineIndex) {
+            currentLineIndex = serverLine;
+            if (nextLineAt >= 0) {
+                uint32_t localProgress = current.progress_ms;
+                int32_t msUntilNext = nextLineAt - (int32_t)localProgress;
+                nextLyricFetchAt = millis() + (uint32_t)max(50L, (long)msUntilNext);
+            }
         }
     }
 
