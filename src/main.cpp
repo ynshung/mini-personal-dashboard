@@ -92,6 +92,11 @@ static TaskHandle_t      rtspNetTaskHandle   = nullptr;
 static volatile bool     rtspFetchError      = false;
 static bool              rtspErrorShown      = false;
 
+static const int BAR_STRIP_Y = BAR_Y - BAR_PAD;
+static const int BAR_STRIP_H = BAR_H + 2 * BAR_PAD;
+static uint16_t barStripBuf[240 * (3 + 2 * 3)];
+static bool barStripSaved = false;
+
 // --- Display ---
 
 void drawStatus(const char* msg) {
@@ -106,6 +111,7 @@ void drawStatus(const char* msg) {
 void drawIdle() {
     drawStatus("No playback");
     hasArt = false;
+    barStripSaved = false;
 }
 
 void drawClockScreen() {
@@ -270,8 +276,15 @@ void rtspNetTask(void *) {
 }
 
 void drawProgressBar(uint32_t progress_ms, uint32_t duration_ms, bool is_playing) {
-    if (!lyricsMode)
-        tft.fillRect(0, BAR_Y - BAR_PAD, 240, BAR_H + 2 * BAR_PAD, TFT_BLACK);
+    if (!lyricsMode) {
+        if (barStripSaved) {
+            tft.setSwapBytes(true);
+            tft.pushImage(0, BAR_STRIP_Y, 240, BAR_STRIP_H, barStripBuf);
+            tft.setSwapBytes(false);
+        } else {
+            tft.fillRect(0, BAR_STRIP_Y, 240, BAR_STRIP_H, TFT_BLACK);
+        }
+    }
     tft.fillRoundRect(BAR_X, BAR_Y, BAR_W, BAR_H, BAR_H / 2, COL_BAR_BG);
     if (duration_ms == 0) return;
     int fillW = (int)((float)progress_ms / duration_ms * BAR_W);
@@ -423,11 +436,9 @@ static bool skipBarRect = false;
 bool tft_output(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap) {
     if (skipBarRect && y < BAR_Y + BAR_H && y + h > BAR_Y &&
         x < BAR_X + BAR_W && x + w > BAR_X) {
-        // Block overlaps the bar rect — render row by row, punching out the bar pixels
         for (int16_t row = 0; row < h; row++) {
             int16_t ry = y + row;
             if (ry >= BAR_Y && ry < BAR_Y + BAR_H) {
-                // Inset skip region on top/bottom rows to match rounded corners (radius 1)
                 int16_t inset = (ry == BAR_Y || ry == BAR_Y + BAR_H - 1) ? 1 : 0;
                 int16_t skipL = BAR_X + inset;
                 int16_t skipR = BAR_X + BAR_W - inset;
@@ -444,6 +455,19 @@ bool tft_output(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap) 
     } else {
         tft.pushImage(x, y, w, h, bitmap);
     }
+
+    // Capture bar-region pixels from album art for later restore
+    if (!skipBarRect && y < BAR_STRIP_Y + BAR_STRIP_H && y + h > BAR_STRIP_Y) {
+        for (int16_t row = 0; row < h; row++) {
+            int16_t ry = y + row;
+            if (ry >= BAR_STRIP_Y && ry < BAR_STRIP_Y + BAR_STRIP_H) {
+                int16_t stripRow = ry - BAR_STRIP_Y;
+                memcpy(&barStripBuf[stripRow * 240 + x], &bitmap[row * w], w * sizeof(uint16_t));
+            }
+        }
+        barStripSaved = true;
+    }
+
     return true;
 }
 
@@ -808,6 +832,7 @@ void activateScreen(Screen s) {
         lyricsMode = false;
         nextLyricFetchAt = 0;
         hasArt = false;
+        barStripSaved = false;
         current.track_id = "\x01";
         drawStatus("Loading...");
         fetchNowPlaying();
