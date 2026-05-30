@@ -45,7 +45,7 @@ LYRICS_ROMAJI=false
 - `WIFI_SSID` / `WIFI_PASSWORD` — for the ESP32 to connect to your network
 - `DEVELOPMENT_MODE` — set to `true` to skip API key checks (default `false`)
 - `LYRICS_FONT_SIZE` — current lyric line font size in px (default `17`); context lines scale proportionally
-- `LYRICS_LATENCY_OFFSET_MS` — ms added to playback position before lyric lookup to compensate for network + render delay (default `150`); increase if lyrics lag, decrease if they appear too early
+- `LYRICS_LATENCY_OFFSET_MS` — ms added to the playback position before lyric line selection, to compensate for network round-trip + server render + JPEG download + decode latency (default `150`); increase if lyrics lag behind audio, decrease if they appear too early
 - `LYRICS_ROMAJI` — set to `true` to convert Japanese lyrics to romaji (default `false`); detects Japanese by the presence of hiragana/katakana, English lines pass through unchanged
 
 ### 2. Install & run the server
@@ -254,7 +254,7 @@ DEVELOPMENT_MODE=false
 | `WIFI_PASSWORD` | Wi-Fi password for the ESP32 |
 | `DEVELOPMENT_MODE` | Set to `true` to disable API key authentication (for local development only) |
 | `LYRICS_FONT_SIZE` | Current lyric line font size in px (default `17`); context lines scale to `round(size × 0.7)` |
-| `LYRICS_LATENCY_OFFSET_MS` | ms added to playback position before lyric lookup to compensate for network + render + decode delay (default `150`) |
+| `LYRICS_LATENCY_OFFSET_MS` | ms added to playback position before lyric line selection to compensate for network + render + decode latency (default `150`) |
 | `LYRICS_ROMAJI` | Set to `true` to convert Japanese lyrics to romaji; detects Japanese by hiragana/katakana presence, English lines pass through unchanged (default `false`) |
 
 ---
@@ -403,9 +403,17 @@ Returns lightweight playback state for polling. Also updates the server-side pla
 
 ### `GET /v1/spotify/lyrics/frame`
 
-Returns the current lyric frame as a 240×240 JPEG. The server blurs and dims the cached album art (no gradient — uniform background), then composites a 3-line lyrics overlay (previous / current / next lyric line). Lyric position is extrapolated from the cached playback state plus `LYRICS_LATENCY_OFFSET_MS`.
+Returns the current lyric frame as a 240×240 JPEG. The server blurs and dims the cached album art (no gradient — uniform background), then composites a 3-line lyrics overlay (previous / current / next lyric line).
+
+Lyric position is taken from the `progress_ms` query param when provided (sent by the ESP from its local estimate); falls back to extrapolating from the cached playback state when absent.
 
 Returns `204 No Content` if nothing is playing. Returns `404` if no synced lyrics are available (ESP falls back to album art mode).
+
+**Query parameters**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `progress_ms` | `int` (optional) | Current playback position in ms, as estimated by the client. When provided, used directly for lyric line selection instead of server-side extrapolation. |
 
 **Response:** `image/jpeg` — 240×240 px
 
@@ -413,7 +421,7 @@ Returns `204 No Content` if nothing is playing. Returns `404` if no synced lyric
 
 | Header | Description |
 |---|---|
-| `X-Next-Lyric-Ms` | Milliseconds until the next lyric line timestamp. ESP waits this long before fetching the next frame. |
+| `X-Next-Line-At-Ms` | Next lyric line timestamp minus `LYRICS_LATENCY_OFFSET_MS`. ESP fires when its local progress reaches this value, at which point the server will select the new line. `-1` at end of song. |
 
 ---
 

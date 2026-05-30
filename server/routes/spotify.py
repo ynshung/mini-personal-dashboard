@@ -8,7 +8,7 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import RedirectResponse, Response
 from routes.album_art import fetch_and_build_base, composite_text, to_rgb565
-from routes.lyrics import update_playback_cache, get_has_lyrics
+from routes.lyrics import update_playback_cache, get_has_lyrics, get_current_line
 
 router = APIRouter()
 
@@ -205,13 +205,20 @@ async def spotify_now_playing():
 
     has_lyrics = await get_has_lyrics(track_id, track_name, artist_name, duration_ms)
 
-    return {
+    result = {
         "track_id": track_id,
         "is_playing": data.get("is_playing", False),
         "progress_ms": data.get("progress_ms", 0),
         "duration_ms": duration_ms,
         "has_lyrics": has_lyrics,
     }
+
+    if has_lyrics:
+        current_line, next_line_at_ms = get_current_line(track_id, data.get("progress_ms", 0))
+        result["current_line"] = current_line
+        result["next_line_at_ms"] = next_line_at_ms
+
+    return result
 
 
 @router.get("/spotify/now-playing/art/jpeg")

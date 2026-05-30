@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import re
@@ -128,32 +129,68 @@ async def _fetch_lrclib(
     return parsed if parsed else None
 
 
+_fetch_in_progress: set[str] = set()
+
+
+async def _fetch_and_cache(
+    track_id: str, track_name: str, artist_name: str, duration_ms: int
+) -> None:
+    lines = await _fetch_lrclib(track_name, artist_name, duration_ms)
+    if lines is not ...:
+        _save_to_file(track_id, lines)
+        _lyrics_cache[track_id] = lines
+    _fetch_in_progress.discard(track_id)
+
+
 async def get_has_lyrics(
     track_id: str, track_name: str, artist_name: str, duration_ms: int
 ) -> bool:
     if track_id not in _lyrics_cache:
         cached = _load_from_file(track_id)
         if cached is ...:
-            lines = await _fetch_lrclib(track_name, artist_name, duration_ms)
-            if lines is ...:
-                return False  # transient error — don't cache, retry next poll
-            _save_to_file(track_id, lines)
-            _lyrics_cache[track_id] = lines
+            if track_id not in _fetch_in_progress:
+                _fetch_in_progress.add(track_id)
+                asyncio.create_task(
+                    _fetch_and_cache(track_id, track_name, artist_name, duration_ms)
+                )
+            return False  # still fetching — next poll will get the result
         else:
             _lyrics_cache[track_id] = cached
     return _lyrics_cache[track_id] is not None
 
 
-def _select_lines(
-    lines: list[tuple[int, str]], progress_ms: int
-) -> tuple[str, str, str, int]:
-    if not lines:
-        return "", "♪", "", 60000
+def get_current_line(track_id: str, progress_ms: int) -> tuple[int, int]:
+    """Return (current_line_index, next_line_at_ms) for the given track and progress.
 
+    Returns (-1, first_line_ts) before the first line, or (-1, -1) if no lyrics."""
+    lines = _lyrics_cache.get(track_id)
+    if not lines:
+        return -1, -1
+
+    adjusted = progress_ms + LATENCY_OFFSET_MS
     curr_idx = -1
     for i, (ts, _) in enumerate(lines):
-        if ts <= progress_ms:
+        if ts <= adjusted:
             curr_idx = i
+
+    if curr_idx < 0:
+        next_at = lines[0][0] - LATENCY_OFFSET_MS
+    elif curr_idx + 1 < len(lines):
+        next_at = lines[curr_idx + 1][0] - LATENCY_OFFSET_MS
+    else:
+        next_at = -1
+
+    return curr_idx, next_at
+
+
+def _select_lines(
+    lines: list[tuple[int, str]], line_index: int
+) -> tuple[str, str, str, int]:
+    """Return (prev, curr, next_text, next_line_at_ms) for the given line index."""
+    if not lines:
+        return "", "♪", "", -1
+
+    curr_idx = max(0, min(line_index, len(lines) - 1))
 
     prev = lines[curr_idx - 1][1] if curr_idx > 0 else ""
     curr = lines[curr_idx][1] if curr_idx >= 0 else ""
@@ -166,7 +203,7 @@ def _select_lines(
         next_entry = None
 
     next_text = next_entry[1] if next_entry is not None else ""
-    next_ms = max(next_entry[0] - progress_ms, 500) if next_entry is not None else 60000
+    next_line_at = next_entry[0] if next_entry is not None else -1
 
     if not prev and curr_idx > 0:
         prev = "♪"
@@ -175,12 +212,12 @@ def _select_lines(
     if next_entry is not None and not next_text:
         next_text = "♪"
 
-    return prev, curr, next_text, next_ms
+    return prev, curr, next_text, next_line_at
 
 
 
 @router.get("/spotify/lyrics/frame")
-async def spotify_lyrics_frame():
+async def spotify_lyrics_frame(line: int):
     if not _playback_cache:
         return Response(status_code=204)
 
@@ -192,12 +229,7 @@ async def spotify_lyrics_frame():
     if not lines:
         raise HTTPException(status_code=404, detail="No synced lyrics for this track")
 
-    progress_ms = _playback_cache["progress_ms"]
-    if _playback_cache.get("is_playing"):
-        progress_ms += int((time.time() - _playback_cache["cached_at"]) * 1000)
-    progress_ms += LATENCY_OFFSET_MS
-
-    prev, curr, next_text, next_ms = _select_lines(lines, progress_ms)
+    prev, curr, next_text, next_line_at = _select_lines(lines, line)
     prev, curr, next_text = _to_romaji(prev), _to_romaji(curr), _to_romaji(next_text)
 
     art_url = _playback_cache.get("art_url", "")
@@ -219,5 +251,5 @@ async def spotify_lyrics_frame():
     return Response(
         content=buf.getvalue(),
         media_type="image/jpeg",
-        headers={"X-Next-Lyric-Ms": str(next_ms)},
+        headers={"X-Next-Line-At-Ms": str(next_line_at - LATENCY_OFFSET_MS if next_line_at >= 0 else -1)},
     )

@@ -78,6 +78,7 @@ bool hasArt = false;
 bool pollFailed = false;
 bool lyricsMode = false;
 uint32_t nextLyricFetchAt = 0;
+int16_t currentLineIndex = -1;
 static volatile int rtspIndex       = 0;
 static volatile int rtspStreamCount = 1;
 
@@ -510,9 +511,10 @@ bool fetchAlbumArt() {
 
 void fetchLyricsFrame() {
     HTTPClient http;
-    http.begin(String(serverUrl) + "/v1/spotify/lyrics/frame");
+    String url = String(serverUrl) + "/v1/spotify/lyrics/frame?line=" + String(max((int16_t)0, currentLineIndex));
+    http.begin(url);
     http.addHeader("X-API-Key", apiKey);
-    const char *headerKeys[] = {"X-Next-Lyric-Ms"};
+    const char *headerKeys[] = {"X-Next-Line-At-Ms"};
     http.collectHeaders(headerKeys, 1);
 
     int code = http.GET();
@@ -535,9 +537,8 @@ void fetchLyricsFrame() {
         return;
     }
 
-    String nextMsStr = http.header("X-Next-Lyric-Ms");
-    uint32_t nextMs = nextMsStr.length() > 0 ? (uint32_t)nextMsStr.toInt() : 1000;
-    if (nextMs < 500) nextMs = 500;
+    String nextLineAtStr = http.header("X-Next-Line-At-Ms");
+    int32_t nextLineAt = nextLineAtStr.length() > 0 ? nextLineAtStr.toInt() : -1;
 
     int contentLength = http.getSize();
     if (contentLength <= 0 || contentLength > 100000) {
@@ -590,8 +591,20 @@ void fetchLyricsFrame() {
         : current.progress_ms;
     drawProgressBar(display_progress, current.duration_ms, current.is_playing);
 
-    nextLyricFetchAt = millis() + nextMs;
-    Serial.printf("Lyrics frame ok, next in %u ms\n", nextMs);
+    currentLineIndex++;
+
+    if (nextLineAt < 0) {
+        nextLyricFetchAt = millis() + 5000;
+        Serial.printf("Lyrics frame ok (line %d), end of song\n", currentLineIndex - 1);
+    } else {
+        uint32_t localProgress = current.is_playing
+            ? current.progress_ms + (uint32_t)(millis() - lastFetchMs)
+            : current.progress_ms;
+        int32_t msUntilNext = (int32_t)nextLineAt - (int32_t)localProgress;
+        uint32_t fetchDelay = (uint32_t)max(50L, (long)msUntilNext);
+        nextLyricFetchAt = millis() + fetchDelay;
+        Serial.printf("Lyrics frame ok (line %d), next in %u ms\n", currentLineIndex - 1, fetchDelay);
+    }
 }
 
 // --- Networking ---
@@ -679,12 +692,29 @@ void fetchNowPlaying() {
         return;
     }
 
+    if (has_lyrics) {
+        currentLineIndex = doc["current_line"] | (int16_t)-1;
+        int32_t nextLineAt = doc["next_line_at_ms"] | (int32_t)-1;
+        if (nextLineAt >= 0) {
+            uint32_t localProgress = current.progress_ms;
+            int32_t msUntilNext = nextLineAt - (int32_t)localProgress;
+            nextLyricFetchAt = millis() + (uint32_t)max(50L, (long)msUntilNext);
+        }
+    }
+
+    bool lyrics_became_available = !lyricsMode && has_lyrics;
+
     if (track_changed) {
         lyricsMode = has_lyrics;
-        nextLyricFetchAt = 0;
-        if (!lyricsMode) {
+        if (lyricsMode) {
+            nextLyricFetchAt = 0;
+        } else {
             fetchAlbumArt();
         }
+        drawProgressBar(current.progress_ms, current.duration_ms, current.is_playing);
+    } else if (lyrics_became_available) {
+        lyricsMode = true;
+        nextLyricFetchAt = 0;
         drawProgressBar(current.progress_ms, current.duration_ms, current.is_playing);
     } else if (play_state_changed || seeked) {
         if (lyricsMode) nextLyricFetchAt = 0;
@@ -867,7 +897,7 @@ void loop() {
 
     if (activeScreen == SPOTIFY) {
         // Lyrics frame fetch
-        if (lyricsMode && now >= nextLyricFetchAt && WiFi.status() == WL_CONNECTED) {
+        if (lyricsMode && current.is_playing && now >= nextLyricFetchAt && WiFi.status() == WL_CONNECTED) {
             fetchLyricsFrame();
         }
 
