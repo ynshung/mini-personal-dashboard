@@ -269,7 +269,8 @@ void rtspNetTask(void *) {
 }
 
 void drawProgressBar(uint32_t progress_ms, uint32_t duration_ms, bool is_playing) {
-    tft.fillRect(0, BAR_Y - BAR_PAD, 240, BAR_H + 2 * BAR_PAD, TFT_BLACK);
+    if (!lyricsMode)
+        tft.fillRect(0, BAR_Y - BAR_PAD, 240, BAR_H + 2 * BAR_PAD, TFT_BLACK);
     tft.fillRoundRect(BAR_X, BAR_Y, BAR_W, BAR_H, BAR_H / 2, COL_BAR_BG);
     if (duration_ms == 0) return;
     int fillW = (int)((float)progress_ms / duration_ms * BAR_W);
@@ -416,19 +417,29 @@ void initWiFi() {
 
 // --- Album art streaming ---
 
-static bool skipBarRows = false;
+static bool skipBarRect = false;
 
 bool tft_output(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t *bitmap) {
-    if (skipBarRows && y + h > BAR_Y - BAR_PAD && y < BAR_Y + BAR_H + BAR_PAD) {
-        // Render the portion above the cleared band
-        int16_t above_h = (BAR_Y - BAR_PAD) - y;
-        if (above_h > 0)
-            tft.pushImage(x, y, w, above_h, bitmap);
-        // Render the portion below the cleared band
-        int16_t below_y = BAR_Y + BAR_H + BAR_PAD;
-        int16_t below_h = (y + h) - below_y;
-        if (below_h > 0)
-            tft.pushImage(x, below_y, w, below_h, bitmap + (below_y - y) * w);
+    if (skipBarRect && y < BAR_Y + BAR_H && y + h > BAR_Y &&
+        x < BAR_X + BAR_W && x + w > BAR_X) {
+        // Block overlaps the bar rect — render row by row, punching out the bar pixels
+        for (int16_t row = 0; row < h; row++) {
+            int16_t ry = y + row;
+            if (ry >= BAR_Y && ry < BAR_Y + BAR_H) {
+                // Inset skip region on top/bottom rows to match rounded corners (radius 1)
+                int16_t inset = (ry == BAR_Y || ry == BAR_Y + BAR_H - 1) ? 1 : 0;
+                int16_t skipL = BAR_X + inset;
+                int16_t skipR = BAR_X + BAR_W - inset;
+                int16_t leftW = skipL - x;
+                if (leftW > 0)
+                    tft.pushImage(x, ry, leftW, 1, bitmap + row * w);
+                int16_t rightStart = skipR - x;
+                if (rightStart < w)
+                    tft.pushImage(x + rightStart, ry, w - rightStart, 1, bitmap + row * w + rightStart);
+            } else {
+                tft.pushImage(x, ry, w, 1, bitmap + row * w);
+            }
+        }
     } else {
         tft.pushImage(x, y, w, h, bitmap);
     }
@@ -567,9 +578,9 @@ void fetchLyricsFrame() {
 
     tft.startWrite();
     tft.setSwapBytes(true);
-    skipBarRows = true;
+    skipBarRect = true;
     TJpgDec.drawJpg(0, 0, buf, contentLength);
-    skipBarRows = false;
+    skipBarRect = false;
     tft.setSwapBytes(false);
     tft.endWrite();
     free(buf);
