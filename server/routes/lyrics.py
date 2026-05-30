@@ -15,7 +15,7 @@ from routes.album_art import IMG_SIZE, fetch_cached_art, composite_lyrics
 router = APIRouter()
 
 LRCLIB_BASE = "https://lrclib.net/api/get"
-LRCLIB_TIMEOUT = 3.0
+LRCLIB_TIMEOUT = 15.0
 LATENCY_OFFSET_MS = int(os.getenv("LYRICS_LATENCY_OFFSET_MS", "150"))
 BLUR_RADIUS = 10
 DIM_ALPHA = 0.6
@@ -135,13 +135,12 @@ async def get_has_lyrics(
         cached = _load_from_file(track_id)
         if cached is ...:
             lines = await _fetch_lrclib(track_name, artist_name, duration_ms)
-            if lines is not ...:
-                _save_to_file(track_id, lines)
-            else:
-                lines = None
+            if lines is ...:
+                return False  # transient error — don't cache, retry next poll
+            _save_to_file(track_id, lines)
+            _lyrics_cache[track_id] = lines
         else:
-            lines = cached
-        _lyrics_cache[track_id] = lines
+            _lyrics_cache[track_id] = cached
     return _lyrics_cache[track_id] is not None
 
 
