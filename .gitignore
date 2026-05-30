@@ -22,6 +22,7 @@ server/rtsp_config.json
 .pio
 .superpowers/
 server/.album_art_cache/
+server/.lyrics_cache/
 
 # Videos
 *.mp4

@@ -1,7 +1,9 @@
+import json
 import os
 import re
 import time
 from io import BytesIO
+from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, HTTPException
@@ -18,8 +20,31 @@ LATENCY_OFFSET_MS = int(os.getenv("LYRICS_LATENCY_OFFSET_MS", "150"))
 BLUR_RADIUS = 10
 DIM_ALPHA = 0.6
 
+LYRICS_CACHE_DIR = Path(__file__).parent.parent / ".lyrics_cache"
+
+# in-memory L1 cache; file cache is L2
 # track_id → list[(timestamp_ms, text)] | None (None = no synced lyrics found)
 _lyrics_cache: dict[str, list[tuple[int, str]] | None] = {}
+
+
+def _lyrics_cache_path(track_id: str) -> Path:
+    return LYRICS_CACHE_DIR / f"{track_id}.json"
+
+
+def _load_from_file(track_id: str) -> list[tuple[int, str]] | None | ...:
+    """Return parsed lines, None (no lyrics), or ... (not cached)."""
+    path = _lyrics_cache_path(track_id)
+    if not path.exists():
+        return ...
+    data = json.loads(path.read_text())
+    if data is None:
+        return None
+    return [tuple(entry) for entry in data]
+
+
+def _save_to_file(track_id: str, lines: list[tuple[int, str]] | None) -> None:
+    LYRICS_CACHE_DIR.mkdir(exist_ok=True)
+    _lyrics_cache_path(track_id).write_text(json.dumps(lines))
 
 # Populated by spotify.py on each now-playing poll
 _playback_cache: dict = {}
@@ -89,7 +114,12 @@ async def get_has_lyrics(
     track_id: str, track_name: str, artist_name: str, duration_ms: int
 ) -> bool:
     if track_id not in _lyrics_cache:
-        lines = await _fetch_lrclib(track_name, artist_name, duration_ms)
+        cached = _load_from_file(track_id)
+        if cached is ...:
+            lines = await _fetch_lrclib(track_name, artist_name, duration_ms)
+            _save_to_file(track_id, lines)
+        else:
+            lines = cached
         _lyrics_cache[track_id] = lines
     return _lyrics_cache[track_id] is not None
 
