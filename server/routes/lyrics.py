@@ -102,6 +102,7 @@ def _parse_lrc(synced_lyrics: str) -> list[tuple[int, str]]:
 async def _fetch_lrclib(
     track_name: str, artist_name: str, duration_ms: int
 ) -> list[tuple[int, str]] | None:
+    """Return parsed lines, None (no synced lyrics on lrclib), or ... (transient error)."""
     params = {
         "track_name": track_name,
         "artist_name": artist_name,
@@ -111,10 +112,12 @@ async def _fetch_lrclib(
         async with httpx.AsyncClient() as client:
             resp = await client.get(LRCLIB_BASE, params=params, timeout=LRCLIB_TIMEOUT)
     except Exception:
-        return None
+        return ...
 
-    if resp.status_code == 404 or not resp.is_success:
+    if resp.status_code == 404:
         return None
+    if not resp.is_success:
+        return ...
 
     data = resp.json()
     synced = data.get("syncedLyrics")
@@ -132,7 +135,10 @@ async def get_has_lyrics(
         cached = _load_from_file(track_id)
         if cached is ...:
             lines = await _fetch_lrclib(track_name, artist_name, duration_ms)
-            _save_to_file(track_id, lines)
+            if lines is not ...:
+                _save_to_file(track_id, lines)
+            else:
+                lines = None
         else:
             lines = cached
         _lyrics_cache[track_id] = lines
