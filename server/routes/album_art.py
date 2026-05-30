@@ -69,7 +69,7 @@ async def fetch_cached_art(art_url: str, album_id: str) -> Image.Image:
     img = img.crop((left, top, left + IMG_SIZE, top + IMG_SIZE))
 
     CACHE_DIR.mkdir(exist_ok=True)
-    img.save(cache_path, "JPEG", quality=75, optimize=True)
+    img.save(cache_path, "JPEG", quality=90, optimize=True)
     _prune_cache()
 
     return img
