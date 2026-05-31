@@ -514,7 +514,14 @@ void initWiFi() {
     Serial.print("Connecting to WiFi...");
     while (WiFi.status() != WL_CONNECTED) {
         Serial.print('.');
-        delay(1000);
+        // Allow either button to restart during connect — btn callbacks aren't attached yet
+        for (int i = 0; i < 10; i++) {
+            if (digitalRead(19) || digitalRead(21)) {
+                Serial.println("\nButton pressed during WiFi connect — restarting");
+                ESP.restart();
+            }
+            delay(100);
+        }
     }
     Serial.printf("\nConnected! IP: %s\n", WiFi.localIP().toString().c_str());
     Serial.printf("Hostname: %s\n", WiFi.getHostname());
