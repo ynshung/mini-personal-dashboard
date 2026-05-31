@@ -135,6 +135,7 @@ async def pre_render_track_lyrics(
         )
     except Exception as e:
         print(f"Failed to start pre-rendering for track {track_id}: {e}")
+    finally:
         _pre_render_tasks.discard(track_id)
 
 
@@ -263,7 +264,9 @@ async def get_has_lyrics(
     if lines is not None:
         art_url = _playback_cache.get("art_url")
         album_id = _playback_cache.get("album_id")
-        if art_url and album_id:
+        frames_dir = LYRICS_CACHE_DIR / "current_frames"
+        already_ready = (frames_dir / ".ready").exists() and _get_current_track_id() == track_id
+        if art_url and album_id and not already_ready and track_id not in _pre_render_tasks:
             asyncio.create_task(
                 pre_render_track_lyrics(track_id, lines, album_id, art_url)
             )
