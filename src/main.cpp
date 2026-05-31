@@ -92,6 +92,17 @@ static TaskHandle_t      rtspNetTaskHandle   = nullptr;
 static volatile bool     rtspFetchError      = false;
 static bool              rtspErrorShown      = false;
 
+// lyricsNetBufLen: >0=valid frame, 0=204 retry, -1=error, -2=404 no lyrics
+static const int         LYRICS_BUF_SIZE     = 65536;
+static uint8_t          *lyricsNetBuf        = nullptr; // heap-allocated in setup()
+static int               lyricsNetBufLen     = 0;
+static int16_t           lyricsNetBufLine    = -1;
+static volatile int32_t  lyricsNetNextAt     = -1;
+static SemaphoreHandle_t lyricsStartSem      = nullptr;
+static SemaphoreHandle_t lyricsReadySem      = nullptr;
+static TaskHandle_t      lyricsNetTaskHandle = nullptr;
+static volatile int16_t  lyricsPrefetchLine  = -1;
+
 static const int BAR_STRIP_Y = BAR_Y - BAR_PAD;
 static const int BAR_STRIP_H = BAR_H + 2 * BAR_PAD;
 static uint16_t barStripBuf[240 * (3 + 2 * 3)];
@@ -272,6 +283,96 @@ void rtspNetTask(void *) {
         rtspFetchError = false;
         rtspWriteIdx ^= 1;
         xSemaphoreGive(rtspReadySem);
+    }
+}
+
+void triggerLyricsPrefetch(int16_t line) {
+    xSemaphoreTake(lyricsReadySem, 0); // drain any stale ready signal
+    lyricsPrefetchLine = line;
+    xSemaphoreGive(lyricsStartSem);
+}
+
+void lyricsNetTask(void *) {
+    for (;;) {
+        xSemaphoreTake(lyricsStartSem, portMAX_DELAY);
+
+        int16_t line = lyricsPrefetchLine;
+        if (line < 0 || WiFi.status() != WL_CONNECTED || lyricsNetBuf == nullptr) {
+            lyricsNetBufLen  = -1;
+            lyricsNetBufLine = -1;
+            xSemaphoreGive(lyricsReadySem);
+            continue;
+        }
+
+        HTTPClient http;
+        String url = String(serverUrl) + "/v1/spotify/lyrics/frame?line=" + String(line);
+        http.begin(url);
+        http.addHeader("X-API-Key", apiKey);
+        const char *headerKeys[] = {"X-Next-Line-At-Ms"};
+        http.collectHeaders(headerKeys, 1);
+
+        int code = http.GET();
+        if (code == 204) {
+            http.end();
+            lyricsNetBufLen  = 0;
+            lyricsNetBufLine = line;
+            lyricsNetNextAt  = -1;
+            xSemaphoreGive(lyricsReadySem);
+            continue;
+        }
+        if (code == 404) {
+            http.end();
+            lyricsNetBufLen  = -2;
+            lyricsNetBufLine = line;
+            xSemaphoreGive(lyricsReadySem);
+            continue;
+        }
+        if (code != 200) {
+            Serial.printf("Lyrics prefetch error: %d\n", code);
+            http.end();
+            lyricsNetBufLen  = -1;
+            lyricsNetBufLine = -1;
+            xSemaphoreGive(lyricsReadySem);
+            continue;
+        }
+
+        String nextLineAtStr = http.header("X-Next-Line-At-Ms");
+        lyricsNetNextAt = nextLineAtStr.length() > 0 ? nextLineAtStr.toInt() : -1;
+
+        int contentLength = http.getSize();
+        if (contentLength <= 0 || contentLength > LYRICS_BUF_SIZE) {
+            Serial.printf("Lyrics prefetch size invalid: %d\n", contentLength);
+            http.end();
+            lyricsNetBufLen  = -1;
+            lyricsNetBufLine = -1;
+            xSemaphoreGive(lyricsReadySem);
+            continue;
+        }
+
+        WiFiClient *stream = http.getStreamPtr();
+        int received = 0;
+        while (received < contentLength && stream->connected()) {
+            int avail = stream->available();
+            if (avail > 0) {
+                int toRead = min(avail, contentLength - received);
+                stream->readBytes(lyricsNetBuf + received, toRead);
+                received += toRead;
+            } else {
+                taskYIELD();
+            }
+        }
+        http.end();
+
+        if (received != contentLength) {
+            Serial.printf("Lyrics prefetch incomplete: %d/%d\n", received, contentLength);
+            lyricsNetBufLen  = -1;
+            lyricsNetBufLine = -1;
+        } else {
+            lyricsNetBufLen  = received;
+            lyricsNetBufLine = line;
+            Serial.printf("Lyrics prefetched line %d (%d bytes)\n", line, received);
+        }
+        xSemaphoreGive(lyricsReadySem);
     }
 }
 
@@ -534,89 +635,53 @@ bool fetchAlbumArt() {
 }
 
 void fetchLyricsFrame() {
-    HTTPClient http;
-    String url = String(serverUrl) + "/v1/spotify/lyrics/frame?line=" + String(max((int16_t)0, currentLineIndex));
-    http.begin(url);
-    http.addHeader("X-API-Key", apiKey);
-    const char *headerKeys[] = {"X-Next-Line-At-Ms"};
-    http.collectHeaders(headerKeys, 1);
+    int16_t expectedLine = max((int16_t)0, currentLineIndex);
 
-    int code = http.GET();
-    if (code == 204) {
-        http.end();
+    // Wait for pre-fetched frame from Core 0 (should already be ready)
+    if (xSemaphoreTake(lyricsReadySem, pdMS_TO_TICKS(6000)) != pdTRUE) {
+        Serial.println("Lyrics prefetch timeout");
         nextLyricFetchAt = millis() + 1000;
+        triggerLyricsPrefetch(expectedLine);
         return;
     }
-    if (code == 404) {
-        // Server has no lyrics for this track; fall back to album art
-        http.end();
+
+    if (lyricsNetBufLen == -2) {
+        // 404: no lyrics for this track, fall back to album art
         lyricsMode = false;
         fetchAlbumArt();
         return;
     }
-    if (code != 200) {
-        Serial.printf("Lyrics frame HTTP error: %d\n", code);
-        http.end();
+    if (lyricsNetBufLen <= 0) {
+        // 204 or error: retry
         nextLyricFetchAt = millis() + 1000;
+        triggerLyricsPrefetch(expectedLine);
         return;
     }
-
-    String nextLineAtStr = http.header("X-Next-Line-At-Ms");
-    int32_t nextLineAt = nextLineAtStr.length() > 0 ? nextLineAtStr.toInt() : -1;
-
-    int contentLength = http.getSize();
-    if (contentLength <= 0 || contentLength > 100000) {
-        Serial.printf("Lyrics frame unexpected size: %d\n", contentLength);
-        http.end();
-        nextLyricFetchAt = millis() + 1000;
-        return;
-    }
-
-    uint8_t *buf = (uint8_t *)malloc(contentLength);
-    if (!buf) {
-        Serial.println("Lyrics frame malloc failed");
-        http.end();
-        nextLyricFetchAt = millis() + 1000;
-        return;
-    }
-
-    WiFiClient *stream = http.getStreamPtr();
-    int received = 0;
-    while (received < contentLength && stream->connected()) {
-        int avail = stream->available();
-        if (avail > 0) {
-            int toRead = min(avail, contentLength - received);
-            stream->readBytes(buf + received, toRead);
-            received += toRead;
-        } else {
-            delay(1);
-        }
-    }
-    http.end();
-
-    if (received != contentLength) {
-        Serial.printf("Lyrics frame incomplete: %d/%d\n", received, contentLength);
-        free(buf);
-        nextLyricFetchAt = millis() + 1000;
+    if (lyricsNetBufLine != expectedLine) {
+        // Stale prefetch (seek/track change): re-trigger for the correct line
+        nextLyricFetchAt = millis() + 50;
+        triggerLyricsPrefetch(expectedLine);
         return;
     }
 
     tft.startWrite();
     tft.setSwapBytes(true);
     skipBarRect = true;
-    TJpgDec.drawJpg(0, 0, buf, contentLength);
+    TJpgDec.drawJpg(0, 0, lyricsNetBuf, (size_t)lyricsNetBufLen);
     skipBarRect = false;
     tft.setSwapBytes(false);
     tft.endWrite();
-    free(buf);
 
     uint32_t display_progress = current.is_playing
         ? current.progress_ms + (uint32_t)(millis() - lastFetchMs)
         : current.progress_ms;
     drawProgressBar(display_progress, current.duration_ms, current.is_playing);
 
-    currentLineIndex++;
+    currentLineIndex = expectedLine + 1;
+    // Immediately kick off the next prefetch on Core 0 while we compute the delay
+    triggerLyricsPrefetch(currentLineIndex);
 
+    int32_t nextLineAt = lyricsNetNextAt;
     if (nextLineAt < 0) {
         nextLyricFetchAt = millis() + 5000;
         Serial.printf("Lyrics frame ok (line %d), end of song\n", currentLineIndex - 1);
@@ -624,7 +689,7 @@ void fetchLyricsFrame() {
         uint32_t localProgress = current.is_playing
             ? current.progress_ms + (uint32_t)(millis() - lastFetchMs)
             : current.progress_ms;
-        int32_t msUntilNext = (int32_t)nextLineAt - (int32_t)localProgress;
+        int32_t msUntilNext = nextLineAt - (int32_t)localProgress;
         uint32_t fetchDelay = (uint32_t)max(50L, (long)msUntilNext);
         nextLyricFetchAt = millis() + fetchDelay;
         Serial.printf("Lyrics frame ok (line %d), next in %u ms\n", currentLineIndex - 1, fetchDelay);
@@ -721,6 +786,7 @@ void fetchNowPlaying() {
         int32_t nextLineAt = doc["next_line_at_ms"] | (int32_t)-1;
         if (track_changed || seeked || !lyricsMode || serverLine > currentLineIndex) {
             currentLineIndex = serverLine;
+            triggerLyricsPrefetch(max((int16_t)0, serverLine));
             if (nextLineAt >= 0) {
                 uint32_t localProgress = current.progress_ms;
                 int32_t msUntilNext = nextLineAt - (int32_t)localProgress;
@@ -735,6 +801,7 @@ void fetchNowPlaying() {
         lyricsMode = has_lyrics;
         if (lyricsMode) {
             nextLyricFetchAt = 0;
+            triggerLyricsPrefetch(max((int16_t)0, currentLineIndex));
         } else {
             fetchAlbumArt();
         }
@@ -742,6 +809,7 @@ void fetchNowPlaying() {
     } else if (lyrics_became_available) {
         lyricsMode = true;
         nextLyricFetchAt = 0;
+        triggerLyricsPrefetch(max((int16_t)0, currentLineIndex));
         drawProgressBar(current.progress_ms, current.duration_ms, current.is_playing);
     } else if (play_state_changed || seeked) {
         if (lyricsMode) nextLyricFetchAt = 0;
@@ -819,6 +887,10 @@ void activateScreen(Screen s) {
         vTaskSuspend(rtspNetTaskHandle);
     if (activeScreen == CLOCK && s != CLOCK)
         clockSprite.deleteSprite();
+    if (activeScreen == SPOTIFY && s != SPOTIFY) {
+        free(lyricsNetBuf);
+        lyricsNetBuf = nullptr;
+    }
     activeScreen = s;
     serverUnreachableSince = 0;
     pollFailed = false;
@@ -832,11 +904,18 @@ void activateScreen(Screen s) {
         fetchCCUsage();
         lastCCPoll = millis();
     } else if (s == SPOTIFY) {
+        lyricsNetBuf = (uint8_t*)malloc(LYRICS_BUF_SIZE);
         lyricsMode = false;
         nextLyricFetchAt = 0;
         hasArt = false;
         barStripSaved = false;
         current.track_id = "\x01";
+        // Drain any stale lyrics prefetch state from a previous SPOTIFY session
+        while (xSemaphoreTake(lyricsReadySem, 0) == pdTRUE) {}
+        while (xSemaphoreTake(lyricsStartSem, 0) == pdTRUE) {}
+        lyricsNetBufLen  = 0;
+        lyricsNetBufLine = -1;
+        lyricsPrefetchLine = -1;
         drawStatus("Loading...");
         fetchNowPlaying();
         lastPoll = millis();
@@ -868,6 +947,9 @@ void setup() {
     rtspReadySem = xSemaphoreCreateCounting(2, 0);
     xTaskCreatePinnedToCore(rtspNetTask, "rtspNet", 8192, nullptr, 1, &rtspNetTaskHandle, 0);
     vTaskSuspend(rtspNetTaskHandle);
+    lyricsStartSem = xSemaphoreCreateCounting(1, 0);
+    lyricsReadySem = xSemaphoreCreateCounting(1, 0);
+    xTaskCreatePinnedToCore(lyricsNetTask, "lyricsNet", 8192, nullptr, 1, &lyricsNetTaskHandle, 0);
     activateScreen(CLOCK);
     btn.attachClick([]() {
         if (activeScreen == CLOCK) return;
