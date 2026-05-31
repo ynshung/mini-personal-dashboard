@@ -70,12 +70,16 @@ def _pre_render_worker(
         # Write track_id file
         (tmp_dir / ".track_id").write_text(track_id)
 
+        t_prep = time.perf_counter()
         base = Image.open(BytesIO(base_img_bytes)).convert("RGB")
         blurred = base.filter(ImageFilter.GaussianBlur(radius=BLUR_RADIUS))
         dim_overlay = Image.new("RGB", (IMG_SIZE, IMG_SIZE), (0, 0, 0))
         blurred = Image.blend(blurred, dim_overlay, DIM_ALPHA)
+        print(f"[lyrics pre-render] blur+dim prep: {(time.perf_counter() - t_prep)*1000:.1f} ms")
 
+        frame_times = []
         for i in range(len(lines)):
+            t_frame = time.perf_counter()
             prev, curr, next_text, _ = _select_lines(lines, i)
             prev, curr, next_text = _to_romaji(prev), _to_romaji(curr), _to_romaji(next_text)
 
@@ -84,7 +88,13 @@ def _pre_render_worker(
             buf = BytesIO()
             final.save(buf, format="JPEG", quality=90, optimize=True)
             (tmp_dir / f"{i}.jpg").write_bytes(buf.getvalue())
+            frame_times.append((time.perf_counter() - t_frame) * 1000)
 
+        n = len(frame_times)
+        total_ms = sum(frame_times)
+        avg_ms = total_ms / n
+        std_ms = (sum((t - avg_ms) ** 2 for t in frame_times) / n) ** 0.5
+        print(f"[lyrics pre-render] {n} frames: {total_ms:.1f} ms total, {avg_ms:.1f} ± {std_ms:.1f} ms/frame")
         (tmp_dir / ".ready").write_text("ready")
 
         if frames_dir.exists():
@@ -339,7 +349,9 @@ async def spotify_lyrics_frame(line: int):
         frame_path = frames_dir / f"{line}.jpg"
         if frame_path.exists():
             try:
+                t_read = time.perf_counter()
                 content = frame_path.read_bytes()
+                print(f"[lyrics cache-hit] line {line}: {(time.perf_counter() - t_read)*1000:.1f} ms")
                 return Response(
                     content=content,
                     media_type="image/jpeg",
@@ -358,6 +370,7 @@ async def spotify_lyrics_frame(line: int):
 
     prev, curr, next_text = _to_romaji(prev), _to_romaji(curr), _to_romaji(next_text)
 
+    t_render = time.perf_counter()
     base = await fetch_cached_art(art_url, album_id)
 
     blurred = base.filter(ImageFilter.GaussianBlur(radius=BLUR_RADIUS))
@@ -368,6 +381,7 @@ async def spotify_lyrics_frame(line: int):
 
     buf = BytesIO()
     final.save(buf, format="JPEG", quality=90, optimize=True)
+    print(f"[lyrics on-demand] line {line}: {(time.perf_counter() - t_render)*1000:.1f} ms")
 
     return Response(
         content=buf.getvalue(),
