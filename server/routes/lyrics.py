@@ -354,7 +354,6 @@ async def spotify_lyrics_frame(line: int):
             try:
                 t_read = time.perf_counter()
                 content = frame_path.read_bytes()
-                print(f"[lyrics cache-hit] line {line}: {(time.perf_counter() - t_read)*1000:.1f} ms")
                 return Response(
                     content=content,
                     media_type="image/jpeg",
